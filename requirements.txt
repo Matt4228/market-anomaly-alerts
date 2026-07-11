@@ -6,5 +6,7 @@ pydantic-settings
 apscheduler
 httpx
 websockets
-openbb
+openbb-core
+openbb-equity
+openbb-yfinance
 python-dotenv

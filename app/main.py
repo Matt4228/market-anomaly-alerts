@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
@@ -17,7 +18,7 @@ scheduler = AsyncIOScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
-    scheduler.add_job(poll_cycle, "interval", minutes=settings.poll_interval_minutes, next_run_time=None)
+    scheduler.add_job(poll_cycle, "interval", minutes=settings.poll_interval_minutes, next_run_time=datetime.now())
     scheduler.start()
     yield
     scheduler.shutdown(wait=False)
