@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -12,7 +12,7 @@ from app.alerts import alert_manager
 from app.config import settings
 from app.db import Base, engine, get_session
 from app.models import Alert, TickerBaseline
-from app.scheduler import poll_cycle
+from app.scheduler import poll_cycle, trigger_test_alert
 
 scheduler = AsyncIOScheduler()
 
@@ -68,6 +68,17 @@ def get_baseline(ticker: str, db: Session = Depends(get_session)):
         "sample_count": baseline.sample_count,
         "updated_at": baseline.updated_at,
     }
+
+
+@app.post("/debug/test-alert/{ticker}")
+async def test_alert(ticker: str):
+    """Demo/testing only — fires a real alert through the same storage,
+    broadcast, and Slack code path as a genuine detection, using a
+    synthetic price instead of waiting on real market volatility."""
+    try:
+        return await trigger_test_alert(ticker.upper())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.websocket("/ws/alerts")

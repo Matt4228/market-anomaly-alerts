@@ -28,6 +28,12 @@
   #alerts li { padding: 0.6rem 0.75rem; border-left: 3px solid #f87171; background: #1a1d24; margin-bottom: 0.5rem; border-radius: 4px; font-size: 0.9rem; }
   #alerts li .ts { color: #9aa0a6; font-size: 0.75rem; display: block; margin-top: 2px; }
   .empty { color: #6b7280; font-style: italic; font-size: 0.9rem; }
+  .test-btn {
+    font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; border: 1px solid #3a3d44;
+    background: #21242b; color: #c8ccd2; cursor: pointer;
+  }
+  .test-btn:hover { background: #2a2d34; }
+  .test-btn:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
@@ -38,7 +44,7 @@
 
   <table>
     <thead>
-      <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Z-Score</th><th>Samples</th></tr>
+      <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Z-Score</th><th>Samples</th><th></th></tr>
     </thead>
     <tbody id="ticker-rows"></tbody>
   </table>
@@ -60,7 +66,7 @@ async function initTable() {
   for (const t of tickers) {
     const tr = document.createElement("tr");
     tr.id = "row-" + t;
-    tr.innerHTML = `<td>${t}</td><td class="price">—</td><td class="mean">—</td><td class="z">—</td><td class="count">—</td>`;
+    tr.innerHTML = `<td>${t}</td><td class="price">—</td><td class="mean">—</td><td class="z">—</td><td class="count">—</td><td><button class="test-btn" data-ticker="${t}">Trigger test alert</button></td>`;
     tbody.appendChild(tr);
     rows[t] = tr;
     refreshBaseline(t);
@@ -126,6 +132,25 @@ function connect() {
     else if (msg.type === "alert") { prependAlert({ ...msg, triggered_at: new Date().toISOString() }); applyPriceUpdate(msg); }
   };
 }
+
+document.getElementById("ticker-rows").addEventListener("click", async (event) => {
+  const btn = event.target.closest(".test-btn");
+  if (!btn) return;
+  const ticker = btn.dataset.ticker;
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = "Triggering…";
+  try {
+    const res = await fetch(`/debug/test-alert/${ticker}`, { method: "POST" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(body.detail || "Test alert failed — check server logs.");
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+});
 
 initTable();
 loadAlerts();

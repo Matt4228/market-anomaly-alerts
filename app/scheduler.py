@@ -3,7 +3,7 @@ import logging
 from app.alerts import alert_manager
 from app.config import settings
 from app.db import SessionLocal
-from app.detector import check_anomaly
+from app.detector import check_anomaly, synthetic_anomalous_price
 from app.ingestion import fetch_latest_price
 from app.models import Alert, PriceHistory
 
@@ -73,3 +73,41 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
     )
     await alert_manager.notify_slack(message)
     return is_anomaly, z_score
+
+
+async def trigger_test_alert(ticker: str) -> dict:
+    """Fires a real alert (stored, broadcast, Slack-notified) using a
+    synthetic price computed against the ticker's current baseline —
+    for demoing the alert path on demand rather than waiting on real
+    market volatility to cross the threshold naturally.
+
+    Deliberately bypasses alert_manager.should_alert() on the way in (a
+    manual trigger should always fire when called), but still calls
+    record_alert() afterward so it participates in cooldown bookkeeping
+    same as a real alert — calling this repeatedly won't spam duplicates.
+    """
+    db = SessionLocal()
+    try:
+        result = synthetic_anomalous_price(db, ticker)
+    finally:
+        db.close()
+
+    if result is None:
+        raise ValueError(f"no baseline yet for {ticker} — wait for a few real poll cycles first")
+
+    synthetic_price, z_score = result
+    message = f"[TEST] {ticker} moved {z_score:.1f} std devs from baseline (synthetic price={synthetic_price:.2f})"
+
+    db = SessionLocal()
+    try:
+        db.add(Alert(ticker=ticker, price=synthetic_price, z_score=z_score, message=message))
+        db.commit()
+    finally:
+        db.close()
+
+    alert_manager.record_alert(ticker)
+    await alert_manager.broadcast(
+        {"type": "alert", "ticker": ticker, "price": synthetic_price, "z_score": z_score, "message": message}
+    )
+    await alert_manager.notify_slack(message)
+    return {"ticker": ticker, "synthetic_price": synthetic_price, "z_score": z_score, "message": message}
