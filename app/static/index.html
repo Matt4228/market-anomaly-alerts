@@ -44,7 +44,7 @@
 
   <table>
     <thead>
-      <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Z-Score</th><th>Samples</th><th></th></tr>
+      <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Volume</th><th>Z-Score</th><th>Samples</th><th></th></tr>
     </thead>
     <tbody id="ticker-rows"></tbody>
   </table>
@@ -66,7 +66,10 @@ async function initTable() {
   for (const t of tickers) {
     const tr = document.createElement("tr");
     tr.id = "row-" + t;
-    tr.innerHTML = `<td>${t}</td><td class="price">—</td><td class="mean">—</td><td class="z">—</td><td class="count">—</td><td><button class="test-btn" data-ticker="${t}">Trigger test alert</button></td>`;
+    tr.innerHTML = `<td>${t}</td><td class="price">—</td><td class="mean">—</td><td class="volume">—</td><td class="z">—</td><td class="count">—</td><td>
+      <button class="test-btn" data-ticker="${t}" data-kind="price">Test price alert</button>
+      <button class="test-btn" data-ticker="${t}" data-kind="volume">Test volume alert</button>
+    </td>`;
     tbody.appendChild(tr);
     rows[t] = tr;
     refreshBaseline(t);
@@ -105,8 +108,12 @@ function applyPriceUpdate(msg) {
   const tr = rows[msg.ticker];
   if (!tr) return;
   tr.querySelector(".price").textContent = fmtNum(msg.price);
+  if (typeof msg.volume === "number") {
+    tr.querySelector(".volume").textContent = msg.volume.toLocaleString();
+  }
   const zEl = tr.querySelector(".z");
-  zEl.textContent = fmtNum(msg.z_score, 1);
+  const label = msg.kind && msg.kind !== "none" ? `${fmtNum(msg.z_score, 1)} (${msg.kind})` : fmtNum(msg.z_score, 1);
+  zEl.textContent = label;
   zEl.className = "z" + (msg.z_score >= 3 ? " zscore-hot" : "");
   tr.classList.remove("flash");
   void tr.offsetWidth; // restart the animation
@@ -137,11 +144,12 @@ document.getElementById("ticker-rows").addEventListener("click", async (event) =
   const btn = event.target.closest(".test-btn");
   if (!btn) return;
   const ticker = btn.dataset.ticker;
+  const kind = btn.dataset.kind;
   btn.disabled = true;
   const originalText = btn.textContent;
   btn.textContent = "Triggering…";
   try {
-    const res = await fetch(`/debug/test-alert/${ticker}`, { method: "POST" });
+    const res = await fetch(`/debug/test-alert/${ticker}?kind=${kind}`, { method: "POST" });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       alert(body.detail || "Test alert failed — check server logs.");

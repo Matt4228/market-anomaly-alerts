@@ -71,12 +71,15 @@ def get_baseline(ticker: str, db: Session = Depends(get_session)):
 
 
 @app.post("/debug/test-alert/{ticker}")
-async def test_alert(ticker: str):
+async def test_alert(ticker: str, kind: str = "price"):
     """Demo/testing only — fires a real alert through the same storage,
     broadcast, and Slack code path as a genuine detection, using a
-    synthetic price instead of waiting on real market volatility."""
+    synthetic price or volume instead of waiting on real market volatility.
+    kind: "price" (default) or "volume"."""
+    if kind not in ("price", "volume"):
+        raise HTTPException(status_code=400, detail="kind must be 'price' or 'volume'")
     try:
-        return await trigger_test_alert(ticker.upper())
+        return await trigger_test_alert(ticker.upper(), kind=kind)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

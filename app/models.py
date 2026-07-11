@@ -31,6 +31,8 @@ class TickerBaseline(Base):
     ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
     mean: Mapped[float] = mapped_column(Float, default=0.0)
     variance_sum: Mapped[float] = mapped_column(Float, default=0.0)  # M2 in Welford's algorithm
+    volume_mean: Mapped[float] = mapped_column(Float, default=0.0)
+    volume_variance_sum: Mapped[float] = mapped_column(Float, default=0.0)
     sample_count: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -39,6 +41,12 @@ class TickerBaseline(Base):
         if self.sample_count < 2:
             return 0.0
         return (self.variance_sum / (self.sample_count - 1)) ** 0.5
+
+    @property
+    def volume_stddev(self) -> float:
+        if self.sample_count < 2:
+            return 0.0
+        return (self.volume_variance_sum / (self.sample_count - 1)) ** 0.5
 
 
 class Alert(Base):
