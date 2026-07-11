@@ -1,6 +1,16 @@
 import asyncio
 from datetime import datetime, timezone
 
+# Imported at module load (main thread) rather than inside the function that
+# runs via asyncio.to_thread. OpenBB's first-ever import runs a one-time
+# package-build step that registers a SIGTERM handler, and Python only
+# allows registering signal handlers from the main thread — deferring this
+# import into a worker thread crashes every single call with "signal only
+# works in main thread of the main interpreter" (this is Linux-strict;
+# Windows silently allows it, so it can look fine in local dev and only
+# fail once deployed).
+from openbb import obb
+
 from app.cache import TTLCache
 from app.config import settings
 from app.rate_limiter import TokenBucketLimiter, with_backoff
@@ -27,8 +37,6 @@ def _fetch_price_blocking(ticker: str) -> dict:
     this against `obb.equity.price.quote.__doc__` / `obb.coverage` for
     whatever version ends up installed before relying on it.
     """
-    from openbb import obb
-
     result = obb.equity.price.quote(symbol=ticker, provider=settings.openbb_provider)
     df = result.to_df()
     if df.empty:
