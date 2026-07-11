@@ -4,3 +4,4 @@ __pycache__/
 .env
 .DS_Store
 AZURE_DEPLOY.md
+deploy.zip
