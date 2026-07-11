@@ -17,25 +17,27 @@ def _fetch_price_blocking(ticker: str) -> dict:
     doesn't block the FastAPI event loop that the scheduler and
     websocket broadcasts also run on.
 
+    Uses the live quote endpoint, not historical(): historical() defaults
+    to daily bars, so polling it every few minutes just re-fetches the
+    same last-completed-day close over and over — no price movement ever
+    shows up, and the anomaly detector never has real variance to work
+    with. quote() returns the actual current last-traded price.
+
     NOTE: OpenBB's Python interface has shifted across versions. Verify
-    this against `obb.equity.price.historical.__doc__` / `obb.coverage`
-    for whatever version ends up installed before relying on it.
+    this against `obb.equity.price.quote.__doc__` / `obb.coverage` for
+    whatever version ends up installed before relying on it.
     """
     from openbb import obb
 
-    result = obb.equity.price.historical(
-        symbol=ticker,
-        provider=settings.openbb_provider,
-        limit=1,
-    )
+    result = obb.equity.price.quote(symbol=ticker, provider=settings.openbb_provider)
     df = result.to_df()
     if df.empty:
         raise ValueError(f"no price data returned for {ticker}")
 
-    row = df.iloc[-1]
+    row = df.iloc[0]
     return {
         "ticker": ticker,
-        "price": float(row["close"]),
+        "price": float(row["last_price"]),
         "volume": float(row.get("volume", 0) or 0),
         "timestamp": datetime.now(timezone.utc),
         "source": settings.openbb_provider,
