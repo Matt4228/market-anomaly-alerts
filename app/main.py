@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -25,6 +27,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Market Anomaly Alerts", lifespan=lifespan)
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.get("/")
+def dashboard():
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/tickers")

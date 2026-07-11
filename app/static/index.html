@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Market Anomaly Alerts</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    max-width: 900px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    background: #0f1115;
+    color: #e6e6e6;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  .sub { color: #9aa0a6; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; }
+  .status.connected { background: #163d24; color: #4ade80; }
+  .status.disconnected { background: #3d1616; color: #f87171; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #2a2d34; font-variant-numeric: tabular-nums; }
+  th { color: #9aa0a6; font-weight: 500; font-size: 0.85rem; }
+  tr.flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: #4a1414; } to { background: transparent; } }
+  .zscore-hot { color: #f87171; font-weight: 600; }
+  #alerts { list-style: none; padding: 0; margin: 0; }
+  #alerts li { padding: 0.6rem 0.75rem; border-left: 3px solid #f87171; background: #1a1d24; margin-bottom: 0.5rem; border-radius: 4px; font-size: 0.9rem; }
+  #alerts li .ts { color: #9aa0a6; font-size: 0.75rem; display: block; margin-top: 2px; }
+  .empty { color: #6b7280; font-style: italic; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+  <h1>Market Anomaly Alerts</h1>
+  <div class="sub">
+    Live prices update every poll cycle · <span id="conn" class="status disconnected">connecting…</span>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Z-Score</th><th>Samples</th></tr>
+    </thead>
+    <tbody id="ticker-rows"></tbody>
+  </table>
+
+  <h2 style="font-size: 1.1rem;">Alerts</h2>
+  <ul id="alerts"><li class="empty">No alerts yet.</li></ul>
+
+<script>
+const rows = {};
+
+function fmtNum(n, digits = 2) {
+  return typeof n === "number" ? n.toFixed(digits) : "—";
+}
+
+async function initTable() {
+  const { tickers } = await (await fetch("/tickers")).json();
+  const tbody = document.getElementById("ticker-rows");
+  tbody.innerHTML = "";
+  for (const t of tickers) {
+    const tr = document.createElement("tr");
+    tr.id = "row-" + t;
+    tr.innerHTML = `<td>${t}</td><td class="price">—</td><td class="mean">—</td><td class="z">—</td><td class="count">—</td>`;
+    tbody.appendChild(tr);
+    rows[t] = tr;
+    refreshBaseline(t);
+  }
+}
+
+async function refreshBaseline(ticker) {
+  const b = await (await fetch(`/tickers/${ticker}/baseline`)).json();
+  const tr = rows[ticker];
+  if (!tr) return;
+  tr.querySelector(".mean").textContent = fmtNum(b.mean);
+  tr.querySelector(".count").textContent = b.sample_count ?? "0";
+}
+
+async function loadAlerts() {
+  const alerts = await (await fetch("/alerts")).json();
+  const ul = document.getElementById("alerts");
+  ul.innerHTML = "";
+  if (alerts.length === 0) {
+    ul.innerHTML = '<li class="empty">No alerts yet.</li>';
+    return;
+  }
+  for (const a of alerts) prependAlert(a);
+}
+
+function prependAlert(a) {
+  const ul = document.getElementById("alerts");
+  const empty = ul.querySelector(".empty");
+  if (empty) empty.remove();
+  const li = document.createElement("li");
+  li.innerHTML = `<strong>${a.ticker}</strong> — ${a.message}<span class="ts">${new Date(a.triggered_at).toLocaleString()}</span>`;
+  ul.prepend(li);
+}
+
+function applyPriceUpdate(msg) {
+  const tr = rows[msg.ticker];
+  if (!tr) return;
+  tr.querySelector(".price").textContent = fmtNum(msg.price);
+  const zEl = tr.querySelector(".z");
+  zEl.textContent = fmtNum(msg.z_score, 1);
+  zEl.className = "z" + (msg.z_score >= 3 ? " zscore-hot" : "");
+  tr.classList.remove("flash");
+  void tr.offsetWidth; // restart the animation
+  tr.classList.add("flash");
+  refreshBaseline(msg.ticker);
+}
+
+function connect() {
+  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${scheme}//${location.host}/ws/alerts`);
+  const status = document.getElementById("conn");
+
+  ws.onopen = () => { status.textContent = "live"; status.className = "status connected"; };
+  ws.onclose = () => {
+    status.textContent = "reconnecting…";
+    status.className = "status disconnected";
+    setTimeout(connect, 3000);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === "price_update") applyPriceUpdate(msg);
+    else if (msg.type === "alert") { prependAlert({ ...msg, triggered_at: new Date().toISOString() }); applyPriceUpdate(msg); }
+  };
+}
+
+initTable();
+loadAlerts();
+connect();
+</script>
+</body>
+</html>
