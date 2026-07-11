@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     poll_interval_minutes: int = 5
     alert_cooldown_minutes: int = 30
     anomaly_zscore_threshold: float = 3.0
+    min_stddev_fraction: float = 0.0005
 
     # Free-tier providers like yfinance/OpenBB aggregate several backends;
     # this bucket is sized conservatively rather than at the documented cap

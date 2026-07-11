@@ -35,9 +35,13 @@ def _fetch_price_blocking(ticker: str) -> dict:
         raise ValueError(f"no price data returned for {ticker}")
 
     row = df.iloc[0]
+    # yfinance's quote schema differs by asset type: EQUITY rows include
+    # last_price, ETF rows (e.g. SPY) don't. bid/ask midpoint is present
+    # on both, so it's used uniformly instead of branching per asset type.
+    price = (float(row["bid"]) + float(row["ask"])) / 2
     return {
         "ticker": ticker,
-        "price": float(row["last_price"]),
+        "price": price,
         "volume": float(row.get("volume", 0) or 0),
         "timestamp": datetime.now(timezone.utc),
         "source": settings.openbb_provider,
