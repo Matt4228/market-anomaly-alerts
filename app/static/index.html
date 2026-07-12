@@ -8,6 +8,11 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   :root { color-scheme: light dark; }
+  /* Without this, any element with both an explicit width and padding
+     (e.g. the mobile ticker cards: width:100% + padding:1rem) renders
+     wider than its container — padding adds on top of the width instead
+     of being included in it. Classic, easy-to-miss overflow cause. */
+  *, *::before, *::after { box-sizing: border-box; }
   body {
     font-family: -apple-system, Segoe UI, Roboto, sans-serif;
     max-width: 900px;
@@ -85,7 +90,7 @@
      can't work at any font size on a ~375px screen, only a structural
      change fixes that). Desktop layout above is completely untouched. */
   @media (max-width: 640px) {
-    body { font-size: 1.05rem; padding: 0 0.75rem; }
+    body { font-size: 1.05rem; padding: 0 0.75rem; overflow-x: hidden; }
     h1 { font-size: 1.75rem; }
     .sub { font-size: 1rem; }
     .sub-full-text { display: none; } /* keep status + buttons, drop the descriptive sentence */
@@ -98,17 +103,19 @@
        to #ticker-table specifically — NOT a bare table/tbody/tr/td rule —
        so modal tables (dividends, settings, alert context) keep their
        normal compact appearance instead of also being cardified. */
-    #ticker-table { border-collapse: separate; border-spacing: 0; }
+    #ticker-table { display: block; width: 100%; border-collapse: separate; border-spacing: 0; }
     #ticker-table thead { display: none; }
     #ticker-table tbody, #ticker-table tr { display: block; width: 100%; }
     #ticker-table tbody tr {
       display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem 1rem;
       background: #1a1d24; border: 1px solid #2a2d34; border-radius: 10px;
-      margin-bottom: 1rem; padding: 1rem;
+      margin-bottom: 1rem; padding: 1rem; width: 100%;
     }
     #ticker-table tbody td {
       display: flex; justify-content: space-between; align-items: center;
       border-bottom: none; padding: 0.3rem 0; font-size: 0.8rem;
+      min-width: 0; /* grid items don't shrink below content size by default */
+      overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
     }
     #ticker-table tbody td:first-child {
       grid-column: 1 / -1;
@@ -126,7 +133,9 @@
     #ticker-table tbody td[data-label="Test Alerts"]::before {
       grid-column: 1 / -1; text-align: center; margin-bottom: 0.2rem;
     }
-    #ticker-table tbody td[data-label="Test Alerts"] .test-btn { width: 100%; }
+    #ticker-table tbody td[data-label="Test Alerts"] .test-btn {
+      width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    }
 
     /* Dividends: one compact card, not one card per row */
     .mini-card {
@@ -218,6 +227,15 @@ function fmtEasternDate(utcString) {
   }).formatToParts(d);
   const get = (type) => parts.find((p) => p.type === type)?.value;
   return `${get("month")}/${get("day")} ${get("hour")}:${get("minute")}`;
+}
+
+// Ticker-history dates (1D/1W ranges) are already correctly localized (see
+// note above) so this is pure string trimming, not a Date/timezone
+// conversion — no risk of double-shifting an already-correct value. Strips
+// trailing ":SS" from "YYYY-MM-DD HH:MM:SS"; leaves date-only strings
+// (1M/3M/1Y ranges, no time component) untouched.
+function fmtProviderDate(dateStr) {
+  return dateStr.replace(/:\d{2}$/, "");
 }
 
 async function initTable() {
@@ -371,7 +389,7 @@ async function loadTickerChart(ticker, range, btnEl) {
   if (btnEl) btnEl.classList.add("active");
 
   const data = await (await fetch(`/tickers/${ticker}/history?range=${range}`)).json();
-  const labels = data.points.map((p) => p.date);
+  const labels = data.points.map((p) => fmtProviderDate(p.date));
   const values = data.points.map((p) => p.close);
 
   const ctx = document.getElementById("ticker-chart");
