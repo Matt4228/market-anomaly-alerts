@@ -1,10 +1,13 @@
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import WebSocket
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class AlertManager:
@@ -50,8 +53,24 @@ class AlertManager:
     async def notify_slack(self, text: str) -> None:
         if not settings.slack_webhook_url:
             return
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(settings.slack_webhook_url, json={"text": text})
+        # Slack is a best-effort side channel: the DB row and WebSocket
+        # broadcast have already succeeded by the time this runs, so a
+        # Slack outage or misconfigured webhook should never take down
+        # the alert pipeline — log it and move on instead of raising.
+        payload = {
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f":rotating_light: {text}"},
+                }
+            ]
+        }
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.post(settings.slack_webhook_url, json=payload)
+                response.raise_for_status()
+        except Exception:
+            logger.exception("failed to post Slack notification")
 
 
 alert_manager = AlertManager(cooldown_minutes=settings.alert_cooldown_minutes)
