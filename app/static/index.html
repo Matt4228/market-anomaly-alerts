@@ -82,7 +82,13 @@
   }
   .range-btn.active { background: #2a5a8f; border-color: #2a5a8f; color: white; }
   .modal-section { margin-top: 1rem; }
-  .modal table { width: 100%; }
+  .modal table { width: 100%; table-layout: fixed; }
+  .modal table td { word-break: break-word; }
+  .modal input[type="number"] {
+    width: 100%; box-sizing: border-box; background: #0f1115; border: 1px solid #3a3d44;
+    color: #e6e6e6; border-radius: 4px; padding: 4px 8px;
+  }
+  .modal .mini-card table { table-layout: auto; } /* dividends: content is short, auto fits better */
 
   /* Mobile: Transient.AI is mobile-first, so this isn't an afterthought —
      roughly 25-50% bigger touch targets/text throughout, and the ticker
