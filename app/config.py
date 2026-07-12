@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     price_cache_ttl_seconds: int = 60
 
     slack_webhook_url: str | None = None
+    # Fails closed if unset: no token configured means /debug/test-alert is
+    # fully refused, not silently open. See README for why this only stops
+    # casual/automated abuse, not someone reading the dashboard's own JS.
+    debug_token: str | None = None
 
     class Config:
         env_file = ".env"

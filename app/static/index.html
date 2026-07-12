@@ -54,6 +54,10 @@
 
 <script>
 const rows = {};
+// Baked in at deploy time for the dashboard's own test buttons to work.
+// This means it's visible via view-source — good enough to stop casual/
+// automated hits on the endpoint, not a substitute for real auth.
+const DEBUG_TOKEN = "__DEBUG_TOKEN__";
 
 function fmtNum(n, digits = 2) {
   return typeof n === "number" ? n.toFixed(digits) : "—";
@@ -154,7 +158,10 @@ document.getElementById("ticker-rows").addEventListener("click", async (event) =
   const originalText = btn.textContent;
   btn.textContent = "Triggering…";
   try {
-    const res = await fetch(`/debug/test-alert/${ticker}?kind=${kind}`, { method: "POST" });
+    const res = await fetch(`/debug/test-alert/${ticker}?kind=${kind}`, {
+      method: "POST",
+      headers: { "X-Debug-Token": DEBUG_TOKEN },
+    });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       alert(body.detail || "Test alert failed — check server logs.");

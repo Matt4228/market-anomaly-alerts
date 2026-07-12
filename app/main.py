@@ -3,8 +3,8 @@ from datetime import datetime
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -33,7 +33,12 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 @app.get("/")
 def dashboard():
-    return FileResponse(STATIC_DIR / "index.html")
+    # Rendered, not served as a static file: the debug token placeholder is
+    # substituted from settings at request time, so the real secret only
+    # ever lives in the environment, never in the committed HTML/git repo.
+    html = (STATIC_DIR / "index.html").read_text()
+    html = html.replace("__DEBUG_TOKEN__", settings.debug_token or "")
+    return HTMLResponse(html)
 
 
 @app.get("/tickers")
@@ -74,13 +79,19 @@ TEST_ALERT_KINDS = ("price", "volume", "spread", "volatility")
 
 
 @app.post("/debug/test-alert/{ticker}")
-async def test_alert(ticker: str, kind: str = "price"):
+async def test_alert(ticker: str, kind: str = "price", x_debug_token: str | None = Header(default=None)):
     """Demo/testing only — fires a real alert through the same storage,
     broadcast, and Slack code path as a genuine detection, using a
     synthetic value instead of waiting on real market volatility.
     kind: "price" (default), "volume", "spread", or "volatility".
     ("stale" isn't synthesizable as a single value — it's a multi-poll
-    state, exercised only by the real poll cycle.)"""
+    state, exercised only by the real poll cycle.)
+
+    Requires X-Debug-Token to match DEBUG_TOKEN. Fails closed: if
+    DEBUG_TOKEN isn't configured, this endpoint refuses every request
+    rather than being silently open."""
+    if not settings.debug_token or x_debug_token != settings.debug_token:
+        raise HTTPException(status_code=403, detail="forbidden")
     if kind not in TEST_ALERT_KINDS:
         raise HTTPException(status_code=400, detail=f"kind must be one of {TEST_ALERT_KINDS}")
     try:
