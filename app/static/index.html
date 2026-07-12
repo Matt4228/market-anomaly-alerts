@@ -16,7 +16,10 @@
     color: #e6e6e6;
   }
   h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
-  .sub { color: #9aa0a6; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .sub {
+    color: #9aa0a6; font-size: 0.9rem; margin-bottom: 1.5rem;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem;
+  }
   .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; }
   .status.connected { background: #163d24; color: #4ade80; }
   .status.disconnected { background: #3d1616; color: #f87171; }
@@ -74,12 +77,62 @@
   .range-btn.active { background: #2a5a8f; border-color: #2a5a8f; color: white; }
   .modal-section { margin-top: 1rem; }
   .modal table { width: 100%; }
+
+  /* Mobile: Transient.AI is mobile-first, so this isn't an afterthought —
+     roughly 25-50% bigger touch targets/text throughout, and the ticker
+     table becomes stacked cards (an 8-column table + 4 buttons per row
+     can't work at any font size on a ~375px screen, only a structural
+     change fixes that). Desktop layout above is completely untouched. */
+  @media (max-width: 640px) {
+    body { font-size: 1.05rem; padding: 0 0.75rem; }
+    h1 { font-size: 1.75rem; }
+    .sub { font-size: 1rem; }
+    .sub-full-text { display: none; } /* keep status + buttons, drop the descriptive sentence */
+
+    .ticker-link { padding: 6px 12px; font-size: 1.05rem; }
+    .test-btn { padding: 10px 12px; font-size: 0.95rem; }
+    .status { padding: 4px 10px; font-size: 0.9rem; }
+
+    /* Table -> stacked cards */
+    table { border-collapse: separate; border-spacing: 0; }
+    thead { display: none; }
+    tbody, tr { display: block; width: 100%; }
+    tbody tr {
+      background: #1a1d24; border: 1px solid #2a2d34; border-radius: 10px;
+      margin-bottom: 1rem; padding: 1rem;
+    }
+    tbody td {
+      display: flex; justify-content: space-between; align-items: center;
+      border-bottom: none; padding: 0.45rem 0; font-size: 1rem;
+    }
+    tbody td:first-child {
+      font-size: 1.3rem; font-weight: 700; justify-content: flex-start;
+      padding-bottom: 0.6rem; margin-bottom: 0.4rem; border-bottom: 1px solid #2a2d34;
+    }
+    tbody td[data-label]::before {
+      content: attr(data-label); color: #9aa0a6; font-weight: 500; font-size: 0.9rem;
+    }
+    tbody td[data-label="Alert Tests"] {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
+      padding-top: 0.6rem; margin-top: 0.2rem; border-top: 1px solid #2a2d34;
+    }
+    tbody td[data-label="Alert Tests"]::before { display: none; }
+    tbody td[data-label="Alert Tests"] .test-btn { width: 100%; }
+
+    /* Modals: wider, bigger inputs (16px minimum stops iOS auto-zoom-on-focus) */
+    .modal { width: 95%; padding: 1.25rem; }
+    .modal h3 { font-size: 1.3rem; }
+    input, .range-btn { font-size: 16px; }
+    .range-btn { padding: 8px 14px; }
+    .modal-close { font-size: 1.6rem; }
+  }
 </style>
 </head>
 <body>
   <h1>Market Anomaly Alerts</h1>
   <div class="sub">
-    Live prices update every poll cycle | <span id="conn" class="status disconnected">connecting…</span>
+    <span class="sub-full-text">Live prices update every poll cycle |</span>
+    <span id="conn" class="status disconnected">connecting…</span>
     | <span class="ticker-link" onclick="openEditTickersModal()">Edit Tickers</span>
     | <span class="ticker-link" onclick="openSettingsModal()">⚙ Settings</span>
   </div>
@@ -139,7 +192,7 @@ async function initTable() {
   for (const t of tickers) {
     const tr = document.createElement("tr");
     tr.id = "row-" + t;
-    tr.innerHTML = `<td><span class="ticker-link" data-ticker="${t}">${t}</span></td><td class="price">—</td><td class="mean">—</td><td class="volume">—</td><td class="spread">—</td><td class="z">—</td><td class="count">—</td><td>
+    tr.innerHTML = `<td><span class="ticker-link" data-ticker="${t}">${t}</span></td><td class="price" data-label="Price">—</td><td class="mean" data-label="Baseline Mean">—</td><td class="volume" data-label="Volume">—</td><td class="spread" data-label="Spread">—</td><td class="z" data-label="Z-Score">—</td><td class="count" data-label="Samples">—</td><td data-label="Alert Tests">
       <button class="test-btn" data-ticker="${t}" data-kind="price">Price</button>
       <button class="test-btn" data-ticker="${t}" data-kind="volume">Volume</button>
       <button class="test-btn" data-ticker="${t}" data-kind="spread">Spread</button>
