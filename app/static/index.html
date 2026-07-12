@@ -108,23 +108,25 @@
     }
     #ticker-table tbody td {
       display: flex; justify-content: space-between; align-items: center;
-      border-bottom: none; padding: 0.3rem 0; font-size: 0.95rem;
+      border-bottom: none; padding: 0.3rem 0; font-size: 0.8rem;
     }
     #ticker-table tbody td:first-child {
       grid-column: 1 / -1;
-      font-size: 1.3rem; font-weight: 700; justify-content: flex-start;
+      font-size: 1.1rem; font-weight: 700; justify-content: flex-start;
       padding-bottom: 0.6rem; margin-bottom: 0.2rem; border-bottom: 1px solid #2a2d34;
     }
     #ticker-table tbody td[data-label]::before {
-      content: attr(data-label); color: #9aa0a6; font-weight: 500; font-size: 0.8rem;
+      content: attr(data-label); color: #9aa0a6; font-weight: 500; font-size: 0.7rem;
     }
-    #ticker-table tbody td[data-label="Alert Tests"] {
+    #ticker-table tbody td[data-label="Test Alerts"] {
       grid-column: 1 / -1;
       display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
       padding-top: 0.6rem; margin-top: 0.2rem; border-top: 1px solid #2a2d34;
     }
-    #ticker-table tbody td[data-label="Alert Tests"]::before { display: none; }
-    #ticker-table tbody td[data-label="Alert Tests"] .test-btn { width: 100%; }
+    #ticker-table tbody td[data-label="Test Alerts"]::before {
+      grid-column: 1 / -1; text-align: center; margin-bottom: 0.2rem;
+    }
+    #ticker-table tbody td[data-label="Test Alerts"] .test-btn { width: 100%; }
 
     /* Dividends: one compact card, not one card per row */
     .mini-card {
@@ -137,6 +139,8 @@
     input, .range-btn { font-size: 16px; }
     .range-btn { padding: 8px 14px; }
     .modal-close { font-size: 1.6rem; }
+
+    .ticker-link svg { stroke-width: 2.75; }
   }
 </style>
 </head>
@@ -151,7 +155,7 @@
 
   <table id="ticker-table">
     <thead>
-      <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Volume</th><th>Spread</th><th>Z-Score</th><th>Samples</th><th>Alert Tests</th></tr>
+      <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Volume</th><th>Spread</th><th>Z-Score</th><th>Samples</th><th>Test Alerts</th></tr>
     </thead>
     <tbody id="ticker-rows"></tbody>
   </table>
@@ -197,6 +201,25 @@ function fmtNum(n, digits = 2) {
   return typeof n === "number" ? n.toFixed(digits) : "—";
 }
 
+// price_history timestamps are stored genuinely in UTC (datetime.now(timezone.utc)
+// in app/ingestion.py) — this converts to Eastern time for display (DST-aware via
+// the browser's timezone database, not a naive fixed offset) and drops
+// seconds/fractional-seconds/the "+00:00" suffix. Ticker-history chart dates
+// (from OpenBB/yfinance) are a different case: they come back already
+// timezone-naive but already localized to market time (verified: intraday bars
+// start at "09:30:00", matching NYSE open) — applying this same conversion to
+// those would incorrectly shift them again, so this is only used for
+// price_history-derived dates (the alert detail chart), not ticker history.
+function fmtEasternDate(utcString) {
+  const d = new Date(utcString.replace(" ", "T"));
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(d);
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  return `${get("month")}/${get("day")} ${get("hour")}:${get("minute")}`;
+}
+
 async function initTable() {
   const { tickers } = await (await fetch("/tickers")).json();
   const tbody = document.getElementById("ticker-rows");
@@ -204,7 +227,7 @@ async function initTable() {
   for (const t of tickers) {
     const tr = document.createElement("tr");
     tr.id = "row-" + t;
-    tr.innerHTML = `<td><span class="ticker-link" data-ticker="${t}">${t}</span></td><td class="price" data-label="Price">—</td><td class="mean" data-label="Baseline Mean">—</td><td class="volume" data-label="Volume">—</td><td class="spread" data-label="Spread">—</td><td class="z" data-label="Z-Score">—</td><td class="count" data-label="Samples">—</td><td data-label="Alert Tests">
+    tr.innerHTML = `<td><span class="ticker-link" data-ticker="${t}">${t}</span></td><td class="price" data-label="Price">—</td><td class="mean" data-label="Baseline Mean">—</td><td class="volume" data-label="Volume">—</td><td class="spread" data-label="Spread">—</td><td class="z" data-label="Z-Score">—</td><td class="count" data-label="Samples">—</td><td data-label="Test Alerts">
       <button class="test-btn" data-ticker="${t}" data-kind="price">Price</button>
       <button class="test-btn" data-ticker="${t}" data-kind="volume">Volume</button>
       <button class="test-btn" data-ticker="${t}" data-kind="spread">Spread</button>
@@ -417,7 +440,7 @@ async function openAlertModal(alertId) {
   `;
 
   const ctx = document.getElementById("alert-chart");
-  const labels = data.nearby_prices.map((p) => p.date);
+  const labels = data.nearby_prices.map((p) => fmtEasternDate(p.date));
   const values = data.nearby_prices.map((p) => p.close);
   if (alertChart) alertChart.destroy();
   alertChart = new Chart(ctx, {
