@@ -6,6 +6,7 @@ from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import asc, desc
 from sqlalchemy.orm import Session
 
@@ -46,6 +47,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Market Anomaly Alerts", lifespan=lifespan)
 
 STATIC_DIR = Path(__file__).parent / "static"
+# Only needed for standalone assets like the favicon — index.html itself is
+# still served through the dashboard() route below (not this mount), since
+# that's where the debug-token placeholder gets substituted at request time.
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")
