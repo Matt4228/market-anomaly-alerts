@@ -28,6 +28,8 @@
   #alerts { list-style: none; padding: 0; margin: 0; }
   #alerts li { padding: 0.6rem 0.75rem; border-left: 3px solid #f87171; background: #1a1d24; margin-bottom: 0.5rem; border-radius: 4px; font-size: 0.9rem; }
   #alerts li .ts { color: #9aa0a6; font-size: 0.75rem; display: block; margin-top: 2px; }
+  #alerts li.alert-item { cursor: pointer; transition: background-color 0.15s ease, color 0.15s ease; }
+  #alerts li.alert-item:hover { color: #4ade80; background-color: #242a33; }
   .empty { color: #6b7280; font-style: italic; font-size: 0.9rem; }
   .test-btn {
     font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; border: 1px solid #3a3d44;
@@ -35,8 +37,20 @@
   }
   .test-btn:hover { background: #2a2d34; }
   .test-btn:disabled { opacity: 0.5; cursor: default; }
-  .ticker-link { cursor: pointer; text-decoration: underline dotted; }
-  .ticker-link:hover { color: #4ade80; }
+  .ticker-link {
+    cursor: pointer; font-weight: 600; color: #7dd3fc; padding: 2px 8px; border-radius: 5px;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .ticker-link:hover { background-color: rgba(74, 222, 128, 0.15); color: #4ade80; }
+  .spinner {
+    display: inline-block; width: 20px; height: 20px; border: 3px solid #2a2d34;
+    border-top-color: #4ade80; border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-block {
+    display: flex; align-items: center; justify-content: center; gap: 0.6rem;
+    min-height: 140px; color: #9aa0a6; font-size: 0.85rem;
+  }
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.6);
     display: none; align-items: center; justify-content: center; z-index: 100;
@@ -88,6 +102,29 @@ const rows = {};
 // This means it's visible via view-source — good enough to stop casual/
 // automated hits on the endpoint, not a substitute for real auth.
 const DEBUG_TOKEN = "__DEBUG_TOKEN__";
+
+// Draws a dashed vertical guide at the hovered x-position, top to bottom of
+// the chart area — paired with interaction:{mode:"index",intersect:false}
+// on each chart so the tooltip triggers from x-position alone, not from
+// needing to hover precisely on the line itself.
+Chart.register({
+  id: "verticalHoverLine",
+  afterDraw(chart) {
+    const active = chart.tooltip?._active;
+    if (!active || !active.length) return;
+    const { ctx, chartArea } = chart;
+    const x = active[0].element.x;
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#6b7280";
+    ctx.stroke();
+    ctx.restore();
+  },
+});
 
 function fmtNum(n, digits = 2) {
   return typeof n === "number" ? n.toFixed(digits) : "—";
@@ -156,7 +193,7 @@ function prependAlert(a) {
   const li = document.createElement("li");
   if (a.id != null) {
     li.dataset.id = a.id;
-    li.classList.add("ticker-link");
+    li.classList.add("alert-item");
   }
   li.innerHTML = `<strong>${a.ticker}</strong> — ${a.message}<span class="ts">${new Date(a.triggered_at).toLocaleString()}</span>`;
   ul.prepend(li);
@@ -228,7 +265,9 @@ async function openTickerModal(ticker) {
     <h3>${ticker}</h3>
     <div>${RANGES.map((r) => `<button class="range-btn" data-range="${r}">${r}</button>`).join("")}</div>
     <canvas id="ticker-chart" height="180"></canvas>
-    <div class="modal-section" id="ticker-fundamentals">Loading…</div>
+    <div class="modal-section" id="ticker-fundamentals">
+      <div class="loading-block"><span class="spinner"></span>Loading fundamentals…</div>
+    </div>
   `);
   document.querySelectorAll(".range-btn").forEach((btn) => {
     btn.addEventListener("click", () => loadTickerChart(ticker, btn.dataset.range, btn));
@@ -253,6 +292,7 @@ async function loadTickerChart(ticker, range, btnEl) {
     data: { labels, datasets: [{ label: ticker, data: values, borderColor: "#4ade80", tension: 0.1, pointRadius: 0 }] },
     options: {
       responsive: true,
+      interaction: { mode: "index", intersect: false },
       scales: {
         x: { ticks: { color: "#9aa0a6", maxTicksLimit: 8 }, grid: { color: "#2a2d34" } },
         y: { ticks: { color: "#9aa0a6" }, grid: { color: "#2a2d34" } },
@@ -292,7 +332,9 @@ async function openAlertModal(alertId) {
   openModal(`
     <button class="modal-close" onclick="closeModal()">&times;</button>
     <h3>Alert #${alertId}</h3>
-    <div id="alert-body">Loading…</div>
+    <div id="alert-body">
+      <div class="loading-block" style="min-height: 320px;"><span class="spinner"></span>Loading alert details…</div>
+    </div>
   `);
   const data = await (await fetch(`/alerts/${alertId}`)).json();
   const body = document.getElementById("alert-body");
@@ -314,6 +356,7 @@ async function openAlertModal(alertId) {
     data: { labels, datasets: [{ label: data.ticker, data: values, borderColor: "#f87171", tension: 0.1, pointRadius: 2 }] },
     options: {
       responsive: true,
+      interaction: { mode: "index", intersect: false },
       scales: {
         x: { ticks: { color: "#9aa0a6", maxTicksLimit: 6 }, grid: { color: "#2a2d34" } },
         y: { ticks: { color: "#9aa0a6" }, grid: { color: "#2a2d34" } },
@@ -327,7 +370,9 @@ async function openSettingsModal() {
   openModal(`
     <button class="modal-close" onclick="closeModal()">&times;</button>
     <h3>Alert Thresholds</h3>
-    <div id="settings-body">Loading…</div>
+    <div id="settings-body">
+      <div class="loading-block" style="min-height: 200px;"><span class="spinner"></span>Loading settings…</div>
+    </div>
   `);
   const config = await (await fetch("/config")).json();
   const body = document.getElementById("settings-body");
