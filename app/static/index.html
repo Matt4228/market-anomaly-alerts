@@ -79,6 +79,7 @@
   <h1>Market Anomaly Alerts</h1>
   <div class="sub">
     Live prices update every poll cycle · <span id="conn" class="status disconnected">connecting…</span>
+    · <span class="ticker-link" onclick="openEditTickersModal()">Edit Tickers</span>
     · <span class="ticker-link" onclick="openSettingsModal()">⚙ Settings</span>
   </div>
 
@@ -364,6 +365,88 @@ async function openAlertModal(alertId) {
       plugins: { legend: { display: false } },
     },
   });
+}
+
+async function renderEditTickersBody() {
+  const body = document.getElementById("edit-tickers-body");
+  if (!body) return;
+  const data = await (await fetch("/tickers")).json();
+  const tickers = data.tickers;
+  const atMin = tickers.length <= 1;
+  const atMax = tickers.length >= 5;
+
+  const rows = tickers
+    .map(
+      (t) => `
+    <li style="display:flex;align-items:center;justify-content:space-between;padding:0.4rem 0;border-bottom:1px solid #2a2d34;">
+      <span>${t}</span>
+      <button class="test-btn remove-ticker-btn" data-ticker="${t}" ${atMin ? "disabled" : ""}>Remove</button>
+    </li>`
+    )
+    .join("");
+
+  body.innerHTML = `
+    <ul style="list-style:none;padding:0;margin:0 0 1rem 0;">${rows}</ul>
+    <div style="display:flex;gap:0.5rem;">
+      <input id="new-ticker-input" placeholder="e.g. AMD" style="flex:1;background:#0f1115;border:1px solid #3a3d44;color:#e6e6e6;border-radius:4px;padding:4px 8px;" ${atMax ? "disabled" : ""}>
+      <button class="test-btn" id="add-ticker-btn" ${atMax ? "disabled" : ""}>Add</button>
+    </div>
+    ${atMax ? '<p style="color:#9aa0a6;font-size:0.8rem;margin-top:0.5rem;">Maximum of 5 tickers reached — remove one to add another.</p>' : ""}
+    <div id="edit-tickers-status" style="margin-top:0.5rem;font-size:0.85rem;"></div>
+  `;
+
+  body.querySelectorAll(".remove-ticker-btn").forEach((btn) => {
+    btn.addEventListener("click", () => removeTicker(btn.dataset.ticker));
+  });
+  const addBtn = document.getElementById("add-ticker-btn");
+  if (addBtn) addBtn.addEventListener("click", addTicker);
+}
+
+async function addTicker() {
+  const input = document.getElementById("new-ticker-input");
+  const status = document.getElementById("edit-tickers-status");
+  const ticker = input.value.trim().toUpperCase();
+  if (!ticker) return;
+  status.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Validating — checking we can fetch data for this symbol…';
+  status.style.color = "#9aa0a6";
+  const res = await fetch(`/tickers/${ticker}`, { method: "POST", headers: { "X-Debug-Token": DEBUG_TOKEN } });
+  const result = await res.json();
+  if (!res.ok) {
+    status.textContent = result.detail || "Failed to add ticker.";
+    status.style.color = "#f87171";
+    return;
+  }
+  await renderEditTickersBody();
+  document.getElementById("edit-tickers-status").textContent = `Added ${ticker}.`;
+  document.getElementById("edit-tickers-status").style.color = "#4ade80";
+  initTable();
+}
+
+async function removeTicker(ticker) {
+  const res = await fetch(`/tickers/${ticker}`, { method: "DELETE", headers: { "X-Debug-Token": DEBUG_TOKEN } });
+  const result = await res.json();
+  if (!res.ok) {
+    await renderEditTickersBody();
+    const status = document.getElementById("edit-tickers-status");
+    if (status) {
+      status.textContent = result.detail || "Failed to remove ticker.";
+      status.style.color = "#f87171";
+    }
+    return;
+  }
+  await renderEditTickersBody();
+  initTable();
+}
+
+async function openEditTickersModal() {
+  openModal(`
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <h3>Edit Tracked Tickers</h3>
+    <div id="edit-tickers-body">
+      <div class="loading-block" style="min-height: 160px;"><span class="spinner"></span>Loading…</div>
+    </div>
+  `);
+  renderEditTickersBody();
 }
 
 async function openSettingsModal() {

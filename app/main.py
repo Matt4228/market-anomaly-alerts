@@ -13,10 +13,12 @@ from app.alerts import alert_manager
 from app.config import settings
 from app.db import Base, SessionLocal, engine, get_session
 from app.detector import current_zscores
+from app.ingestion import fetch_latest_price
 from app.models import Alert, PriceHistory, TickerBaseline
 from app.runtime_config import get_runtime_config, update_runtime_config
 from app.scheduler import poll_cycle, trigger_test_alert
 from app.ticker_info import RANGE_CONFIG, fetch_fundamentals, fetch_history
+from app.tracked_tickers import add_tracked_ticker, get_tracked_tickers, remove_tracked_ticker
 
 scheduler = AsyncIOScheduler()
 
@@ -31,6 +33,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         get_runtime_config(db)
+        get_tracked_tickers(db)
     finally:
         db.close()
 
@@ -56,8 +59,40 @@ def dashboard():
 
 
 @app.get("/tickers")
-def list_tickers():
-    return {"tickers": settings.tickers, "poll_interval_minutes": settings.poll_interval_minutes}
+def list_tickers(db: Session = Depends(get_session)):
+    return {"tickers": get_tracked_tickers(db), "poll_interval_minutes": settings.poll_interval_minutes}
+
+
+@app.post("/tickers/{ticker}")
+async def add_ticker(ticker: str, x_debug_token: str | None = Header(default=None), db: Session = Depends(get_session)):
+    """Adds a ticker to the tracked set (max 5). Validates that we can
+    actually fetch live data for it BEFORE persisting — the same
+    fetch_latest_price() call the real poller uses, so "valid" means
+    "our actual ingestion pipeline works for this symbol", not just
+    "looks like a ticker format"."""
+    if not settings.debug_token or x_debug_token != settings.debug_token:
+        raise HTTPException(status_code=403, detail="forbidden")
+    ticker = ticker.upper()
+    try:
+        await fetch_latest_price(ticker)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"couldn't fetch data for {ticker} — check the symbol is valid")
+    try:
+        tickers = add_tracked_ticker(db, ticker)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"tickers": tickers}
+
+
+@app.delete("/tickers/{ticker}")
+def remove_ticker(ticker: str, x_debug_token: str | None = Header(default=None), db: Session = Depends(get_session)):
+    if not settings.debug_token or x_debug_token != settings.debug_token:
+        raise HTTPException(status_code=403, detail="forbidden")
+    try:
+        tickers = remove_tracked_ticker(db, ticker.upper())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"tickers": tickers}
 
 
 @app.get("/alerts")

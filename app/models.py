@@ -104,3 +104,15 @@ class RuntimeConfig(Base):
     stale_threshold: Mapped[int] = mapped_column(Integer)
     alert_cooldown_minutes: Mapped[int] = mapped_column(Integer)
     reconciliation_tolerance: Mapped[float] = mapped_column(Float)
+
+
+class TrackedTicker(Base):
+    """The editable set of tickers being polled — same "DB overrides the
+    original env var once seeded" pattern as RuntimeConfig. Kept to a
+    dedicated table (rather than a column on RuntimeConfig) since it's a
+    list, not a scalar."""
+
+    __tablename__ = "tracked_ticker"
+
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

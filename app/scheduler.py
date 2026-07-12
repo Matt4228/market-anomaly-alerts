@@ -2,18 +2,27 @@ import json
 import logging
 
 from app.alerts import alert_manager
-from app.config import settings
 from app.db import SessionLocal
 from app.detector import AnomalyResult, check_anomaly, synthetic_anomalous_sample
 from app.ingestion import fetch_latest_price, fetch_reconciliation_price
 from app.models import Alert, PriceHistory
 from app.runtime_config import get_runtime_config
+from app.tracked_tickers import get_tracked_tickers
 
 logger = logging.getLogger(__name__)
 
 
 async def poll_cycle() -> None:
-    for ticker in settings.tickers:
+    # Read fresh each cycle (not cached) so adding/removing a ticker via the
+    # dashboard takes effect on the next poll, not just after a restart —
+    # same reasoning as RuntimeConfig being read fresh per operation.
+    db = SessionLocal()
+    try:
+        tickers = get_tracked_tickers(db)
+    finally:
+        db.close()
+
+    for ticker in tickers:
         try:
             price_data = await fetch_latest_price(ticker)
             await process_price(ticker, price_data, persist_price_history=True)

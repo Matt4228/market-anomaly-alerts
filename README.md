@@ -8,7 +8,9 @@ reading of the same ticker. Pushes alerts out over WebSocket and Slack, with a l
 dashboard to watch it happen. Clicking a ticker opens a detail view (price chart with
 selectable range, dividends, next earnings); clicking an alert opens the actual context
 that triggered it (signals, baseline stats at the time, a nearby price chart); alert
-thresholds are adjustable live from a settings panel, no redeploy required.
+thresholds are adjustable live from a settings panel, no redeploy required; and the tracked
+ticker set itself (1-5 tickers) is editable from the dashboard, with each addition validated
+against the real data pipeline before being accepted.
 Built as a practice project standing in for Bloomberg-style market data API experience,
 with a deliberate focus on the mechanics that come up around any rate-limited external
 API: throttling, backoff, caching, scalability, and cost tradeoffs.
@@ -106,6 +108,9 @@ uvicorn app.main:app --reload
 
 - `GET /` — live dashboard (real-time prices, z-scores, alert feed, test-trigger buttons)
 - `GET /tickers` — tracked tickers and poll interval
+- `POST /tickers/{ticker}` — add a tracked ticker (max 5, auth required); validates by
+  actually calling the live ingestion path before persisting, not just checking format
+- `DELETE /tickers/{ticker}` — remove a tracked ticker (min 1, auth required)
 - `GET /alerts` — recent alerts
 - `GET /alerts/{id}` — a single alert's full context (signals/baseline snapshot at trigger
   time) plus a nearby slice of `price_history` for a context chart
