@@ -70,14 +70,19 @@ def get_baseline(ticker: str, db: Session = Depends(get_session)):
     }
 
 
+TEST_ALERT_KINDS = ("price", "volume", "spread", "volatility")
+
+
 @app.post("/debug/test-alert/{ticker}")
 async def test_alert(ticker: str, kind: str = "price"):
     """Demo/testing only — fires a real alert through the same storage,
     broadcast, and Slack code path as a genuine detection, using a
-    synthetic price or volume instead of waiting on real market volatility.
-    kind: "price" (default) or "volume"."""
-    if kind not in ("price", "volume"):
-        raise HTTPException(status_code=400, detail="kind must be 'price' or 'volume'")
+    synthetic value instead of waiting on real market volatility.
+    kind: "price" (default), "volume", "spread", or "volatility".
+    ("stale" isn't synthesizable as a single value — it's a multi-poll
+    state, exercised only by the real poll cycle.)"""
+    if kind not in TEST_ALERT_KINDS:
+        raise HTTPException(status_code=400, detail=f"kind must be one of {TEST_ALERT_KINDS}")
     try:
         return await trigger_test_alert(ticker.upper(), kind=kind)
     except ValueError as e:

@@ -44,7 +44,7 @@
 
   <table>
     <thead>
-      <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Volume</th><th>Z-Score</th><th>Samples</th><th></th></tr>
+      <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Volume</th><th>Spread</th><th>Z-Score</th><th>Samples</th><th></th></tr>
     </thead>
     <tbody id="ticker-rows"></tbody>
   </table>
@@ -66,9 +66,11 @@ async function initTable() {
   for (const t of tickers) {
     const tr = document.createElement("tr");
     tr.id = "row-" + t;
-    tr.innerHTML = `<td>${t}</td><td class="price">—</td><td class="mean">—</td><td class="volume">—</td><td class="z">—</td><td class="count">—</td><td>
-      <button class="test-btn" data-ticker="${t}" data-kind="price">Test price alert</button>
-      <button class="test-btn" data-ticker="${t}" data-kind="volume">Test volume alert</button>
+    tr.innerHTML = `<td>${t}</td><td class="price">—</td><td class="mean">—</td><td class="volume">—</td><td class="spread">—</td><td class="z">—</td><td class="count">—</td><td>
+      <button class="test-btn" data-ticker="${t}" data-kind="price">Price</button>
+      <button class="test-btn" data-ticker="${t}" data-kind="volume">Volume</button>
+      <button class="test-btn" data-ticker="${t}" data-kind="spread">Spread</button>
+      <button class="test-btn" data-ticker="${t}" data-kind="volatility">Volatility</button>
     </td>`;
     tbody.appendChild(tr);
     rows[t] = tr;
@@ -110,6 +112,9 @@ function applyPriceUpdate(msg) {
   tr.querySelector(".price").textContent = fmtNum(msg.price);
   if (typeof msg.volume === "number") {
     tr.querySelector(".volume").textContent = msg.volume.toLocaleString();
+  }
+  if (typeof msg.spread === "number") {
+    tr.querySelector(".spread").textContent = fmtNum(msg.spread, 3);
   }
   const zEl = tr.querySelector(".z");
   const label = msg.kind && msg.kind !== "none" ? `${fmtNum(msg.z_score, 1)} (${msg.kind})` : fmtNum(msg.z_score, 1);

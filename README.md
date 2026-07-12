@@ -1,8 +1,9 @@
 # Market Anomaly Alerts
 
-A Python backend that polls market data (via [OpenBB](https://openbb.co/)), detects
-statistically anomalous price **and volume** moves against a per-ticker rolling baseline,
-and pushes alerts out over WebSocket and Slack, with a live dashboard to watch it happen.
+A Python backend that polls market data (via [OpenBB](https://openbb.co/)) and detects
+five independent kinds of anomaly against a per-ticker rolling baseline — price moves,
+volume spikes, bid/ask spread widening, tick-to-tick volatility clustering, and stale/halted
+quotes — pushing alerts out over WebSocket and Slack, with a live dashboard to watch it happen.
 Built as a practice project standing in for Bloomberg-style market data API experience,
 with a deliberate focus on the mechanics that come up around any rate-limited external
 API: throttling, backoff, caching, scalability, and cost tradeoffs.
@@ -36,14 +37,26 @@ Canada Central — see `AZURE_DEPLOY.md`, local/gitignored, for the deployment s
   scale."
 - **Rule-based detection (z-score), not ML.** Keeps the MVP explainable. Swapping in a
   model later is a natural extension, not a redesign.
-- **Price and volume tracked as independent series, one shared sample count.** A ticker
-  can be flagged for a price move, a volume spike, or both — surfaced separately in the
-  alert message rather than collapsed into one generic "anomaly" score.
-- **A manual test-trigger endpoint** (`POST /debug/test-alert/{ticker}?kind=price|volume`)
+- **Five signals tracked as independent series, one shared sample count** (price, volume,
+  bid/ask spread, tick-to-tick delta magnitude, and a stale-quote counter). A ticker can be
+  flagged for any combination — surfaced separately in the alert message (e.g.
+  `"price+volume"`) rather than collapsed into one generic "anomaly" score.
+  - **Spread** (`ask - bid`) is data we already fetch for the midpoint price calculation —
+    tracking it as its own baseline cost nothing in new API calls, and a widening spread is
+    a standard illiquidity/market-stress signal.
+  - **Volatility clustering** is proxied as `abs(price - previous_price)` tracked as its own
+    baseline — a ticker can have a perfectly normal-looking price while its *tick-to-tick
+    movement magnitude* has shifted regime, which a price z-score alone can't see.
+  - **Stale/halted detection** flags when price and volume are both unchanged for several
+    consecutive polls — the same instinct as the daily-bar-vs-live-quote bug found earlier
+    in this project, now automated instead of found by hand.
+- **A manual test-trigger endpoint** (`POST /debug/test-alert/{ticker}?kind=price|volume|spread|volatility`)
   fires a real alert — through the same storage/broadcast/Slack path as a genuine
   detection — using a synthetic value computed against the current baseline. It's
   read-only against the baseline itself, so demoing the alert path doesn't skew real
-  stats with fake data. Exists because waiting on real 3-sigma market moves to demo the
+  stats with fake data. ("stale" isn't synthesizable as a single value — it's a multi-poll
+  state, exercised only by the real poll cycle.) Exists because waiting on real 3-sigma
+  market moves to demo the
   system isn't practical.
 
 ## Setup

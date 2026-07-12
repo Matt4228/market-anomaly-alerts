@@ -20,17 +20,37 @@ async def poll_cycle() -> None:
             logger.exception("poll failed for %s", ticker)
 
 
-def _build_message(ticker: str, result: AnomalyResult, price: float, volume: float, prefix: str = "") -> str:
-    if result.kind == "price+volume":
-        return f"{prefix}{ticker} price+volume both anomalous (price z={result.price_z:.1f}, volume z={result.volume_z:.1f})"
-    if result.kind == "volume":
-        return f"{prefix}{ticker} volume spiked {result.volume_z:.1f} std devs from baseline (volume={volume:,.0f})"
-    return f"{prefix}{ticker} price moved {result.price_z:.1f} std devs from baseline (price={price:.2f})"
+def _describe_signal(name: str, z: float, price: float, volume: float, spread: float) -> str:
+    if name == "price":
+        return f"price moved {z:.1f} std devs (price={price:.2f})"
+    if name == "volume":
+        return f"volume spiked {z:.1f} std devs (volume={volume:,.0f})"
+    if name == "spread":
+        return f"bid/ask spread widened {z:.1f} std devs (spread={spread:.2f})"
+    if name == "volatility":
+        return f"tick-to-tick volatility {z:.1f} std devs above normal"
+    return f"{name} z={z:.1f}"
+
+
+def _build_message(
+    ticker: str, result: AnomalyResult, price: float, volume: float, spread: float = 0.0, prefix: str = ""
+) -> str:
+    if result.stale:
+        base = f"{ticker} looks halted/stale — no price movement and zero volume for {result.stale_count} consecutive polls"
+        triggered_others = [name for name in result.signals if name in result.kind.split("+")]
+        if triggered_others:
+            extra = "; ".join(_describe_signal(n, result.signals[n], price, volume, spread) for n in triggered_others)
+            return f"{prefix}{base} (also: {extra})"
+        return f"{prefix}{base}"
+
+    triggered = [name for name in result.signals if result.signals[name] >= settings.anomaly_zscore_threshold]
+    descriptions = "; ".join(_describe_signal(n, result.signals[n], price, volume, spread) for n in triggered)
+    return f"{prefix}{ticker} {descriptions}"
 
 
 async def process_price(ticker: str, price_data: dict, *, persist_price_history: bool) -> AnomalyResult:
-    """Runs detection + alert dispatch for a given price/volume point, and
-    broadcasts a live tick regardless of whether it's an anomaly.
+    """Runs detection + alert dispatch for a given price/volume/bid/ask
+    point, and broadcasts a live tick regardless of whether it's an anomaly.
 
     Shared by the real poller and the manual test-trigger endpoint, so
     both go through the exact same detection/alert code path — the test
@@ -38,6 +58,9 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
     """
     price = price_data["price"]
     volume = price_data["volume"]
+    bid = price_data.get("bid", price)
+    ask = price_data.get("ask", price)
+    spread = ask - bid
 
     db = SessionLocal()
     try:
@@ -53,7 +76,7 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
             )
             db.commit()
 
-        result = check_anomaly(db, ticker, price, volume)
+        result = check_anomaly(db, ticker, price, volume, bid, ask)
     finally:
         db.close()
 
@@ -63,6 +86,7 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
             "ticker": ticker,
             "price": price,
             "volume": volume,
+            "spread": spread,
             "z_score": result.z_score,
             "kind": result.kind,
         }
@@ -71,7 +95,7 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
     if not result.is_anomaly or not alert_manager.should_alert(ticker):
         return result
 
-    message = _build_message(ticker, result, price, volume)
+    message = _build_message(ticker, result, price, volume, spread)
 
     db = SessionLocal()
     try:
@@ -90,9 +114,10 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
 
 async def trigger_test_alert(ticker: str, kind: str = "price") -> dict:
     """Fires a real alert (stored, broadcast, Slack-notified) using a
-    synthetic price or volume computed against the ticker's current
-    baseline — for demoing the alert path on demand (either signal type)
-    rather than waiting on real market volatility to cross the threshold.
+    synthetic value computed against the ticker's current baseline — for
+    demoing the alert path on demand (any signal type except "stale", which
+    is a multi-poll state rather than a single synthetic value) rather than
+    waiting on real market volatility to cross the threshold.
 
     Deliberately bypasses alert_manager.should_alert() on the way in (a
     manual trigger should always fire when called), but still calls
@@ -110,16 +135,12 @@ async def trigger_test_alert(ticker: str, kind: str = "price") -> dict:
 
     synthetic_value = sample["value"]
     z_score = sample["z_score"]
-    result = AnomalyResult(
-        is_anomaly=True,
-        z_score=z_score,
-        kind=kind,
-        price_z=z_score if kind == "price" else 0.0,
-        volume_z=z_score if kind == "volume" else 0.0,
-    )
+    result = AnomalyResult(is_anomaly=True, z_score=z_score, kind=kind, signals={kind: z_score})
+
     price = synthetic_value if kind == "price" else 0.0
     volume = synthetic_value if kind == "volume" else 0.0
-    message = _build_message(ticker, result, price, volume, prefix="[TEST] ")
+    spread = synthetic_value if kind == "spread" else 0.0
+    message = _build_message(ticker, result, price, volume, spread, prefix="[TEST] ")
 
     db = SessionLocal()
     try:

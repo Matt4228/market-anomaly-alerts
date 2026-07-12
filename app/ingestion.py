@@ -46,10 +46,14 @@ def _fetch_price_blocking(ticker: str) -> dict:
     # yfinance's quote schema differs by asset type: EQUITY rows include
     # last_price, ETF rows (e.g. SPY) don't. bid/ask midpoint is present
     # on both, so it's used uniformly instead of branching per asset type.
-    price = (float(row["bid"]) + float(row["ask"])) / 2
+    bid = float(row["bid"])
+    ask = float(row["ask"])
+    price = (bid + ask) / 2
     return {
         "ticker": ticker,
         "price": price,
+        "bid": bid,
+        "ask": ask,
         "volume": float(row.get("volume", 0) or 0),
         "timestamp": datetime.now(timezone.utc),
         "source": settings.openbb_provider,
