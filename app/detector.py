@@ -57,6 +57,8 @@ def check_anomaly(db: Session, ticker: str, price: float, volume: float, bid: fl
             delta_mean=0.0,
             delta_variance_sum=0.0,
             last_price=price,
+            last_volume=volume,
+            last_spread=spread,
             stale_count=0,
             sample_count=1,
         )
@@ -87,6 +89,8 @@ def check_anomaly(db: Session, ticker: str, price: float, volume: float, bid: fl
         baseline.delta_mean, baseline.delta_variance_sum, baseline.sample_count, delta
     )
     baseline.last_price = price
+    baseline.last_volume = volume
+    baseline.last_spread = spread
     baseline.stale_count = baseline.stale_count + 1 if is_stale_tick else 0
     db.commit()
 
@@ -111,7 +115,31 @@ def check_anomaly(db: Session, ticker: str, price: float, volume: float, bid: fl
     )
 
 
-def synthetic_anomalous_sample(db: Session, ticker: str, kind: str = "price") -> dict | None:
+def current_zscores(baseline: TickerBaseline) -> dict[str, float]:
+    """Read-only: recomputes price/volume/spread z-scores from the
+    baseline's already-persisted last_price/last_volume/last_spread against
+    its current mean/stddev — for showing "how anomalous does the most
+    recent tick look" on page load, before the next real poll's WebSocket
+    broadcast would otherwise be the only source of this.
+
+    Slightly different from the z-score computed live in check_anomaly:
+    that one compares an incoming point against the baseline BEFORE folding
+    it in, whereas this compares the baseline's last point against its own
+    current (already-updated) stats — a small self-referential difference
+    that doesn't matter for a display/backfill purpose like this one.
+    """
+    if baseline.sample_count < 2 or baseline.last_price is None:
+        return {}
+    return {
+        "price": abs(baseline.last_price - baseline.mean) / _effective_stddev(baseline.stddev, baseline.last_price),
+        "volume": abs((baseline.last_volume or 0) - baseline.volume_mean)
+        / _effective_stddev(baseline.volume_stddev, max(baseline.last_volume or 0, 1.0)),
+        "spread": abs((baseline.last_spread or 0) - baseline.spread_mean)
+        / _effective_stddev(baseline.spread_stddev, max(baseline.last_price, 1.0)),
+    }
+
+
+def synthetic_anomalous_sample(db: Session, ticker: str, kind: str = "price") -> dict:
     """Read-only: computes a value that would cross the anomaly threshold
     for the given signal against the ticker's CURRENT baseline, without
     mutating it.
@@ -121,10 +149,16 @@ def synthetic_anomalous_sample(db: Session, ticker: str, kind: str = "price") ->
     unlike check_anomaly, this never writes to ticker_baseline. "stale" is
     a multi-poll state rather than a single synthetic value, so it isn't
     supported here — it's exercised by the real poll cycle only.
+
+    Returns {"error": ..., "sample_count": ...} instead of a usable sample
+    when there isn't enough baseline data yet, so callers can report real
+    progress ("3/6 samples so far") instead of a flat "no baseline" message.
     """
     baseline = db.get(TickerBaseline, ticker)
-    if baseline is None or baseline.sample_count <= 5:
-        return None
+    if baseline is None:
+        return {"error": "no_baseline", "sample_count": 0}
+    if baseline.sample_count <= 5:
+        return {"error": "insufficient_samples", "sample_count": baseline.sample_count}
 
     if kind == "volume":
         effective_stddev = _effective_stddev(baseline.volume_stddev, max(baseline.volume_mean, 1.0))

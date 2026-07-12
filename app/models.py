@@ -42,6 +42,8 @@ class TickerBaseline(Base):
     delta_mean: Mapped[float] = mapped_column(Float, default=0.0)
     delta_variance_sum: Mapped[float] = mapped_column(Float, default=0.0)
     last_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_spread: Mapped[float | None] = mapped_column(Float, nullable=True)
     stale_count: Mapped[int] = mapped_column(Integer, default=0)
     sample_count: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

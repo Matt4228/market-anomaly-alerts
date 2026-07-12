@@ -168,8 +168,12 @@ async def trigger_test_alert(ticker: str, kind: str = "price") -> dict:
     finally:
         db.close()
 
-    if sample is None:
-        raise ValueError(f"no baseline yet for {ticker} — wait for a few real poll cycles first")
+    if "error" in sample:
+        if sample["error"] == "no_baseline":
+            raise ValueError(f"no baseline yet for {ticker} — wait for the first real poll cycle")
+        raise ValueError(
+            f"{ticker} has {sample['sample_count']}/6 samples so far — wait for a few more real poll cycles"
+        )
 
     synthetic_value = sample["value"]
     z_score = sample["z_score"]

@@ -44,7 +44,7 @@
 
   <table>
     <thead>
-      <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Volume</th><th>Spread</th><th>Z-Score</th><th>Samples</th><th></th></tr>
+      <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Volume</th><th>Spread</th><th>Z-Score</th><th>Samples</th><th>Alert Tests</th></tr>
     </thead>
     <tbody id="ticker-rows"></tbody>
   </table>
@@ -88,6 +88,24 @@ async function refreshBaseline(ticker) {
   if (!tr) return;
   tr.querySelector(".mean").textContent = fmtNum(b.mean);
   tr.querySelector(".count").textContent = b.sample_count ?? "0";
+
+  // Backfills price/volume/spread/z-score immediately on page load/refresh
+  // instead of leaving them blank until the next WebSocket broadcast — all
+  // of this is already sitting in the baseline row.
+  if (typeof b.last_price === "number") {
+    tr.querySelector(".price").textContent = fmtNum(b.last_price);
+  }
+  if (typeof b.last_volume === "number") {
+    tr.querySelector(".volume").textContent = b.last_volume.toLocaleString();
+  }
+  if (typeof b.last_spread === "number") {
+    tr.querySelector(".spread").textContent = fmtNum(b.last_spread, 3);
+  }
+  if (typeof b.z_score === "number") {
+    const zEl = tr.querySelector(".z");
+    zEl.textContent = fmtNum(b.z_score, 1);
+    zEl.className = "z" + (b.z_score >= 3 ? " zscore-hot" : "");
+  }
 }
 
 async function loadAlerts() {

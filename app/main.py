@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.alerts import alert_manager
 from app.config import settings
 from app.db import Base, engine, get_session
+from app.detector import current_zscores
 from app.models import Alert, TickerBaseline
 from app.scheduler import poll_cycle, trigger_test_alert
 
@@ -66,12 +67,23 @@ def get_baseline(ticker: str, db: Session = Depends(get_session)):
     baseline = db.get(TickerBaseline, ticker.upper())
     if baseline is None:
         return {"ticker": ticker.upper(), "sample_count": 0}
+
+    # Lets the dashboard backfill price/volume/spread/z-score on page load
+    # instead of showing blanks until the next WebSocket broadcast — all of
+    # this is already sitting in the baseline row, just wasn't exposed here.
+    zscores = current_zscores(baseline)
+    triggered_z = [z for z in zscores.values() if z >= settings.anomaly_zscore_threshold]
+
     return {
         "ticker": baseline.ticker,
         "mean": baseline.mean,
         "stddev": baseline.stddev,
         "sample_count": baseline.sample_count,
         "updated_at": baseline.updated_at,
+        "last_price": baseline.last_price,
+        "last_volume": baseline.last_volume,
+        "last_spread": baseline.last_spread,
+        "z_score": max(triggered_z, default=0.0),
     }
 
 
