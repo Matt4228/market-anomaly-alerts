@@ -94,31 +94,42 @@
     .test-btn { padding: 10px 12px; font-size: 0.95rem; }
     .status { padding: 4px 10px; font-size: 0.9rem; }
 
-    /* Table -> stacked cards */
-    table { border-collapse: separate; border-spacing: 0; }
-    thead { display: none; }
-    tbody, tr { display: block; width: 100%; }
-    tbody tr {
+    /* Ticker table -> stacked cards, 2 columns of stats per card. Scoped
+       to #ticker-table specifically — NOT a bare table/tbody/tr/td rule —
+       so modal tables (dividends, settings, alert context) keep their
+       normal compact appearance instead of also being cardified. */
+    #ticker-table { border-collapse: separate; border-spacing: 0; }
+    #ticker-table thead { display: none; }
+    #ticker-table tbody, #ticker-table tr { display: block; width: 100%; }
+    #ticker-table tbody tr {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem 1rem;
       background: #1a1d24; border: 1px solid #2a2d34; border-radius: 10px;
       margin-bottom: 1rem; padding: 1rem;
     }
-    tbody td {
+    #ticker-table tbody td {
       display: flex; justify-content: space-between; align-items: center;
-      border-bottom: none; padding: 0.45rem 0; font-size: 1rem;
+      border-bottom: none; padding: 0.3rem 0; font-size: 0.95rem;
     }
-    tbody td:first-child {
+    #ticker-table tbody td:first-child {
+      grid-column: 1 / -1;
       font-size: 1.3rem; font-weight: 700; justify-content: flex-start;
-      padding-bottom: 0.6rem; margin-bottom: 0.4rem; border-bottom: 1px solid #2a2d34;
+      padding-bottom: 0.6rem; margin-bottom: 0.2rem; border-bottom: 1px solid #2a2d34;
     }
-    tbody td[data-label]::before {
-      content: attr(data-label); color: #9aa0a6; font-weight: 500; font-size: 0.9rem;
+    #ticker-table tbody td[data-label]::before {
+      content: attr(data-label); color: #9aa0a6; font-weight: 500; font-size: 0.8rem;
     }
-    tbody td[data-label="Alert Tests"] {
+    #ticker-table tbody td[data-label="Alert Tests"] {
+      grid-column: 1 / -1;
       display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
       padding-top: 0.6rem; margin-top: 0.2rem; border-top: 1px solid #2a2d34;
     }
-    tbody td[data-label="Alert Tests"]::before { display: none; }
-    tbody td[data-label="Alert Tests"] .test-btn { width: 100%; }
+    #ticker-table tbody td[data-label="Alert Tests"]::before { display: none; }
+    #ticker-table tbody td[data-label="Alert Tests"] .test-btn { width: 100%; }
+
+    /* Dividends: one compact card, not one card per row */
+    .mini-card {
+      background: #1a1d24; border: 1px solid #2a2d34; border-radius: 10px; padding: 0.85rem;
+    }
 
     /* Modals: wider, bigger inputs (16px minimum stops iOS auto-zoom-on-focus) */
     .modal { width: 95%; padding: 1.25rem; }
@@ -135,10 +146,10 @@
     <span class="sub-full-text">Live prices update every poll cycle |</span>
     <span id="conn" class="status disconnected">connecting…</span>
     | <span class="ticker-link" onclick="openEditTickersModal()">Edit Tickers</span>
-    | <span class="ticker-link" onclick="openSettingsModal()">⚙ Settings</span>
+    | <span class="ticker-link" onclick="openSettingsModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:2px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> Settings</span>
   </div>
 
-  <table>
+  <table id="ticker-table">
     <thead>
       <tr><th>Ticker</th><th>Price</th><th>Baseline Mean</th><th>Volume</th><th>Spread</th><th>Z-Score</th><th>Samples</th><th>Alert Tests</th></tr>
     </thead>
@@ -368,9 +379,11 @@ async function loadTickerFundamentals(ticker) {
   const eps = data.earnings.eps_estimate != null ? ` (est. EPS $${data.earnings.eps_estimate.toFixed(2)})` : "";
   el.innerHTML = `
     <p><strong>Next earnings:</strong> ${data.earnings.next_date ?? "—"}${eps}</p>
-    <strong>Recent dividends</strong>
-    <table><thead><tr><th>Ex-date</th><th>Amount</th></tr></thead>
-    <tbody>${divRows || '<tr><td colspan="2">None</td></tr>'}</tbody></table>
+    <div class="mini-card">
+      <strong>Recent dividends</strong>
+      <table><thead><tr><th>Ex-date</th><th>Amount</th></tr></thead>
+      <tbody>${divRows || '<tr><td colspan="2">None</td></tr>'}</tbody></table>
+    </div>
   `;
 }
 
