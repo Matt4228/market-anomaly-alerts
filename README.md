@@ -3,7 +3,9 @@
 A Python backend that polls market data (via [OpenBB](https://openbb.co/)) and detects
 five independent kinds of anomaly against a per-ticker rolling baseline — price moves,
 volume spikes, bid/ask spread widening, tick-to-tick volatility clustering, and stale/halted
-quotes — pushing alerts out over WebSocket and Slack, with a live dashboard to watch it happen.
+quotes — plus a separate price reconciliation check against a second, independently-fetched
+reading of the same ticker. Pushes alerts out over WebSocket and Slack, with a live
+dashboard to watch it happen.
 Built as a practice project standing in for Bloomberg-style market data API experience,
 with a deliberate focus on the mechanics that come up around any rate-limited external
 API: throttling, backoff, caching, scalability, and cost tradeoffs.
@@ -50,6 +52,14 @@ Canada Central — see `AZURE_DEPLOY.md`, local/gitignored, for the deployment s
   - **Stale/halted detection** flags when price and volume are both unchanged for several
     consecutive polls — the same instinct as the daily-bar-vs-live-quote bug found earlier
     in this project, now automated instead of found by hand.
+- **Price reconciliation as a separate check, not another baseline signal.** Cross-checks
+  the primary OpenBB quote against a second reading fetched directly via `yfinance`
+  (bypassing OpenBB's wrapper). Worth being honest about what this proves: both
+  ultimately trace back to Yahoo Finance, so it's not two unrelated vendors — but it's a
+  genuinely different code path/endpoint, and a large discrepancy is still a legitimate
+  signal (stale cache, a bad read, a provider-side data issue). Uses its own cooldown key
+  (`{ticker}:reconciliation`) so it never competes with or gets suppressed by a
+  price/volume/spread/volatility alert on the same ticker.
 - **A manual test-trigger endpoint** (`POST /debug/test-alert/{ticker}?kind=price|volume|spread|volatility`)
   fires a real alert — through the same storage/broadcast/Slack path as a genuine
   detection — using a synthetic value computed against the current baseline. It's

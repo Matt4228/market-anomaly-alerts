@@ -10,4 +10,5 @@ websockets
 openbb-core
 openbb-equity
 openbb-yfinance
+yfinance
 python-dotenv

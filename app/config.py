@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     anomaly_zscore_threshold: float = 3.0
     min_stddev_fraction: float = 0.0005
     stale_threshold: int = 3
+    reconciliation_tolerance: float = 0.02
 
     # Free-tier providers like yfinance/OpenBB aggregate several backends;
     # this bucket is sized conservatively rather than at the documented cap

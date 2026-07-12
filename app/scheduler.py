@@ -4,7 +4,7 @@ from app.alerts import alert_manager
 from app.config import settings
 from app.db import SessionLocal
 from app.detector import AnomalyResult, check_anomaly, synthetic_anomalous_sample
-from app.ingestion import fetch_latest_price
+from app.ingestion import fetch_latest_price, fetch_reconciliation_price
 from app.models import Alert, PriceHistory
 
 logger = logging.getLogger(__name__)
@@ -15,9 +15,47 @@ async def poll_cycle() -> None:
         try:
             price_data = await fetch_latest_price(ticker)
             await process_price(ticker, price_data, persist_price_history=True)
+            await check_reconciliation(ticker, price_data["price"])
         except Exception:
             # One ticker's provider hiccup shouldn't take down the whole cycle.
             logger.exception("poll failed for %s", ticker)
+
+
+async def check_reconciliation(ticker: str, primary_price: float) -> None:
+    """Cross-checks the primary (OpenBB) price against a second,
+    independently-fetched reading (see ingestion.fetch_reconciliation_price
+    for the honest caveat on how independent that really is). Uses its own
+    cooldown key so a reconciliation mismatch never competes with, or gets
+    suppressed by, a price/volume/spread/volatility alert's cooldown."""
+    recon_price = await fetch_reconciliation_price(ticker)
+    if recon_price is None:
+        return
+
+    pct_diff = abs(primary_price - recon_price) / primary_price
+    if pct_diff < settings.reconciliation_tolerance:
+        return
+
+    cooldown_key = f"{ticker}:reconciliation"
+    if not alert_manager.should_alert(cooldown_key):
+        return
+
+    message = (
+        f"{ticker} price reconciliation mismatch: primary={primary_price:.2f} vs "
+        f"independent={recon_price:.2f} ({pct_diff * 100:.1f}% diff)"
+    )
+
+    db = SessionLocal()
+    try:
+        db.add(Alert(ticker=ticker, price=primary_price, z_score=pct_diff * 100, message=message))
+        db.commit()
+    finally:
+        db.close()
+
+    alert_manager.record_alert(cooldown_key)
+    await alert_manager.broadcast(
+        {"type": "alert", "ticker": ticker, "price": primary_price, "z_score": pct_diff * 100, "message": message}
+    )
+    await alert_manager.notify_slack(message)
 
 
 def _describe_signal(name: str, z: float, price: float, volume: float, spread: float) -> str:

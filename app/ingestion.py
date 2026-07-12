@@ -1,5 +1,8 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
+
+import yfinance as yf
 
 # Imported at module load (main thread) rather than inside the function that
 # runs via asyncio.to_thread. OpenBB's first-ever import runs a one-time
@@ -20,6 +23,7 @@ limiter = TokenBucketLimiter(
     refill_per_sec=settings.rate_limit_refill_per_sec,
 )
 price_cache = TTLCache(ttl_seconds=settings.price_cache_ttl_seconds)
+logger = logging.getLogger(__name__)
 
 
 def _fetch_price_blocking(ticker: str) -> dict:
@@ -73,3 +77,32 @@ async def fetch_latest_price(ticker: str) -> dict:
     price = await with_backoff(_attempt)
     price_cache.set(ticker, price)
     return price
+
+
+def _fetch_reconciliation_price_blocking(ticker: str) -> float:
+    """A second, independently-fetched reading of the same ticker, used
+    only to cross-check against the primary OpenBB quote — not the
+    ingestion path itself.
+
+    Calls yfinance directly rather than through OpenBB's wrapper. Worth
+    being honest about what this does and doesn't prove: both ultimately
+    trace back to Yahoo Finance, so this isn't two unrelated vendors —
+    but it's a genuinely different code path/endpoint, so timing and
+    caching differences between them are real, and catching a large
+    discrepancy is still a legitimate reconciliation check, the same
+    pattern used to catch stale or wrong data from a single source.
+    """
+    info = yf.Ticker(ticker).fast_info
+    return float(info.last_price)
+
+
+async def fetch_reconciliation_price(ticker: str) -> float | None:
+    """Best-effort: returns None on any failure rather than raising, since
+    this is a supplementary cross-check, not the primary ingestion path —
+    a hiccup here should never affect the main price/anomaly pipeline."""
+    try:
+        await limiter.acquire()
+        return await asyncio.to_thread(_fetch_reconciliation_price_blocking, ticker)
+    except Exception:
+        logger.exception("reconciliation fetch failed for %s", ticker)
+        return None
