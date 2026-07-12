@@ -1,3 +1,4 @@
+import json
 import logging
 
 from app.alerts import alert_manager
@@ -6,6 +7,7 @@ from app.db import SessionLocal
 from app.detector import AnomalyResult, check_anomaly, synthetic_anomalous_sample
 from app.ingestion import fetch_latest_price, fetch_reconciliation_price
 from app.models import Alert, PriceHistory
+from app.runtime_config import get_runtime_config
 
 logger = logging.getLogger(__name__)
 
@@ -31,29 +33,53 @@ async def check_reconciliation(ticker: str, primary_price: float) -> None:
     if recon_price is None:
         return
 
+    db = SessionLocal()
+    try:
+        config = get_runtime_config(db)
+    finally:
+        db.close()
+
     pct_diff = abs(primary_price - recon_price) / primary_price
-    if pct_diff < settings.reconciliation_tolerance:
+    if pct_diff < config.reconciliation_tolerance:
         return
 
     cooldown_key = f"{ticker}:reconciliation"
-    if not alert_manager.should_alert(cooldown_key):
+    if not alert_manager.should_alert(cooldown_key, config.alert_cooldown_minutes):
         return
 
     message = (
         f"{ticker} price reconciliation mismatch: primary={primary_price:.2f} vs "
         f"independent={recon_price:.2f} ({pct_diff * 100:.1f}% diff)"
     )
+    context = json.dumps(
+        {
+            "kind": "reconciliation",
+            "primary_price": primary_price,
+            "independent_price": recon_price,
+            "pct_diff": pct_diff,
+            "tolerance": config.reconciliation_tolerance,
+        }
+    )
 
     db = SessionLocal()
     try:
-        db.add(Alert(ticker=ticker, price=primary_price, z_score=pct_diff * 100, message=message))
+        alert_row = Alert(ticker=ticker, price=primary_price, z_score=pct_diff * 100, message=message, context=context)
+        db.add(alert_row)
         db.commit()
+        alert_id = alert_row.id
     finally:
         db.close()
 
     alert_manager.record_alert(cooldown_key)
     await alert_manager.broadcast(
-        {"type": "alert", "ticker": ticker, "price": primary_price, "z_score": pct_diff * 100, "message": message}
+        {
+            "type": "alert",
+            "id": alert_id,
+            "ticker": ticker,
+            "price": primary_price,
+            "z_score": pct_diff * 100,
+            "message": message,
+        }
     )
     await alert_manager.notify_slack(message)
 
@@ -71,7 +97,13 @@ def _describe_signal(name: str, z: float, price: float, volume: float, spread: f
 
 
 def _build_message(
-    ticker: str, result: AnomalyResult, price: float, volume: float, spread: float = 0.0, prefix: str = ""
+    ticker: str,
+    result: AnomalyResult,
+    price: float,
+    volume: float,
+    spread: float,
+    zscore_threshold: float,
+    prefix: str = "",
 ) -> str:
     if result.stale:
         base = f"{ticker} looks halted/stale — no price movement and zero volume for {result.stale_count} consecutive polls"
@@ -81,7 +113,7 @@ def _build_message(
             return f"{prefix}{base} (also: {extra})"
         return f"{prefix}{base}"
 
-    triggered = [name for name in result.signals if result.signals[name] >= settings.anomaly_zscore_threshold]
+    triggered = [name for name in result.signals if result.signals[name] >= zscore_threshold]
     descriptions = "; ".join(_describe_signal(n, result.signals[n], price, volume, spread) for n in triggered)
     return f"{prefix}{ticker} {descriptions}"
 
@@ -114,7 +146,10 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
             )
             db.commit()
 
-        result = check_anomaly(db, ticker, price, volume, bid, ask)
+        config = get_runtime_config(db)
+        result = check_anomaly(
+            db, ticker, price, volume, bid, ask, config.anomaly_zscore_threshold, config.stale_threshold
+        )
     finally:
         db.close()
 
@@ -130,21 +165,34 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
         }
     )
 
-    if not result.is_anomaly or not alert_manager.should_alert(ticker):
+    if not result.is_anomaly or not alert_manager.should_alert(ticker, config.alert_cooldown_minutes):
         return result
 
-    message = _build_message(ticker, result, price, volume, spread)
+    message = _build_message(ticker, result, price, volume, spread, config.anomaly_zscore_threshold)
+    context = json.dumps(
+        {
+            "kind": result.kind,
+            "signals": result.signals,
+            "stale_count": result.stale_count,
+            "baseline": result.baseline_snapshot,
+            "price": price,
+            "volume": volume,
+            "spread": spread,
+        }
+    )
 
     db = SessionLocal()
     try:
-        db.add(Alert(ticker=ticker, price=price, z_score=result.z_score, message=message))
+        alert_row = Alert(ticker=ticker, price=price, z_score=result.z_score, message=message, context=context)
+        db.add(alert_row)
         db.commit()
+        alert_id = alert_row.id
     finally:
         db.close()
 
     alert_manager.record_alert(ticker)
     await alert_manager.broadcast(
-        {"type": "alert", "ticker": ticker, "price": price, "z_score": result.z_score, "message": message}
+        {"type": "alert", "id": alert_id, "ticker": ticker, "price": price, "z_score": result.z_score, "message": message}
     )
     await alert_manager.notify_slack(message)
     return result
@@ -164,7 +212,8 @@ async def trigger_test_alert(ticker: str, kind: str = "price") -> dict:
     """
     db = SessionLocal()
     try:
-        sample = synthetic_anomalous_sample(db, ticker, kind=kind)
+        config = get_runtime_config(db)
+        sample = synthetic_anomalous_sample(db, ticker, config.anomaly_zscore_threshold, kind=kind)
     finally:
         db.close()
 
@@ -182,16 +231,21 @@ async def trigger_test_alert(ticker: str, kind: str = "price") -> dict:
     price = synthetic_value if kind == "price" else 0.0
     volume = synthetic_value if kind == "volume" else 0.0
     spread = synthetic_value if kind == "spread" else 0.0
-    message = _build_message(ticker, result, price, volume, spread, prefix="[TEST] ")
+    message = _build_message(ticker, result, price, volume, spread, config.anomaly_zscore_threshold, prefix="[TEST] ")
+    context = json.dumps({"kind": kind, "synthetic_value": synthetic_value, "z_score": z_score, "is_test": True})
 
     db = SessionLocal()
     try:
-        db.add(Alert(ticker=ticker, price=price, z_score=z_score, message=message))
+        alert_row = Alert(ticker=ticker, price=price, z_score=z_score, message=message, context=context)
+        db.add(alert_row)
         db.commit()
+        alert_id = alert_row.id
     finally:
         db.close()
 
     alert_manager.record_alert(ticker)
-    await alert_manager.broadcast({"type": "alert", "ticker": ticker, "price": price, "z_score": z_score, "message": message})
+    await alert_manager.broadcast(
+        {"type": "alert", "id": alert_id, "ticker": ticker, "price": price, "z_score": z_score, "message": message}
+    )
     await alert_manager.notify_slack(message)
     return {"ticker": ticker, "kind": kind, "synthetic_value": synthetic_value, "z_score": z_score, "message": message}

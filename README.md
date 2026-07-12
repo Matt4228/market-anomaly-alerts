@@ -5,7 +5,10 @@ five independent kinds of anomaly against a per-ticker rolling baseline — pric
 volume spikes, bid/ask spread widening, tick-to-tick volatility clustering, and stale/halted
 quotes — plus a separate price reconciliation check against a second, independently-fetched
 reading of the same ticker. Pushes alerts out over WebSocket and Slack, with a live
-dashboard to watch it happen.
+dashboard to watch it happen. Clicking a ticker opens a detail view (price chart with
+selectable range, dividends, next earnings); clicking an alert opens the actual context
+that triggered it (signals, baseline stats at the time, a nearby price chart); alert
+thresholds are adjustable live from a settings panel, no redeploy required.
 Built as a practice project standing in for Bloomberg-style market data API experience,
 with a deliberate focus on the mechanics that come up around any rate-limited external
 API: throttling, backoff, caching, scalability, and cost tradeoffs.
@@ -60,6 +63,20 @@ Canada Central — see `AZURE_DEPLOY.md`, local/gitignored, for the deployment s
   signal (stale cache, a bad read, a provider-side data issue). Uses its own cooldown key
   (`{ticker}:reconciliation`) so it never competes with or gets suppressed by a
   price/volume/spread/volatility alert on the same ticker.
+- **Alert context is captured at trigger time, not reconstructed later.** The `Alert` row
+  stores a JSON snapshot (which signals fired, the baseline mean/stddev at that moment) at
+  the exact point in `scheduler.py` where the alert already fires — everything needed is
+  already computed right there. The alternative (showing today's baseline when someone
+  later opens an old alert) would be quietly wrong, since the baseline keeps evolving.
+- **Alert thresholds live in Postgres (`RuntimeConfig`), not just `.env`.** Once that
+  singleton row exists, it's the permanent source of truth — a later env var change has no
+  effect. That's intentional: it's what makes the settings panel able to change real
+  alerting behavior without a restart. Seeded once in the FastAPI `lifespan`, before any
+  request is accepted, specifically so two concurrent first-requests can't race to insert it.
+- **Ticker/alert detail views are modals, not separate pages** — keeps the existing
+  WebSocket connection alive rather than re-establishing it on navigation. Charting is
+  Chart.js via CDN (a real external dependency, a deliberate tradeoff for a working
+  interactive chart in a few lines instead of hand-rolling SVG rendering).
 - **A manual test-trigger endpoint** (`POST /debug/test-alert/{ticker}?kind=price|volume|spread|volatility`)
   fires a real alert — through the same storage/broadcast/Slack path as a genuine
   detection — using a synthetic value computed against the current baseline. It's
@@ -90,8 +107,16 @@ uvicorn app.main:app --reload
 - `GET /` — live dashboard (real-time prices, z-scores, alert feed, test-trigger buttons)
 - `GET /tickers` — tracked tickers and poll interval
 - `GET /alerts` — recent alerts
+- `GET /alerts/{id}` — a single alert's full context (signals/baseline snapshot at trigger
+  time) plus a nearby slice of `price_history` for a context chart
 - `GET /tickers/{ticker}/baseline` — current rolling mean/stddev for a ticker
-- `POST /debug/test-alert/{ticker}?kind=price|volume` — demo/testing only, see above
+- `GET /tickers/{ticker}/history?range=1D|1W|1M|3M|1Y` — OHLC price series for the ticker
+  detail chart
+- `GET /tickers/{ticker}/fundamentals` — recent dividends + next earnings date/estimate
+- `GET /config` — current alert thresholds
+- `POST /config` — update one or more thresholds (auth required, same as test-alert)
+- `POST /debug/test-alert/{ticker}?kind=price|volume|spread|volatility` — demo/testing
+  only, see above
 - `WS /ws/alerts` — live price ticks + alert stream (what the dashboard subscribes to)
 
 ## Notes

@@ -14,6 +14,7 @@ class AnomalyResult:
     signals: dict[str, float] = field(default_factory=dict)  # all computed z-scores
     stale: bool = False
     stale_count: int = 0
+    baseline_snapshot: dict = field(default_factory=dict)  # mean/stddev per series AT this point, for alert context
 
 
 def _effective_stddev(stddev: float, scale: float) -> float:
@@ -33,7 +34,16 @@ def _welford_update(mean: float, variance_sum: float, count: int, value: float) 
     return new_mean, new_variance_sum
 
 
-def check_anomaly(db: Session, ticker: str, price: float, volume: float, bid: float, ask: float) -> AnomalyResult:
+def check_anomaly(
+    db: Session,
+    ticker: str,
+    price: float,
+    volume: float,
+    bid: float,
+    ask: float,
+    zscore_threshold: float,
+    stale_threshold: int,
+) -> AnomalyResult:
     """Compares price, volume, bid/ask spread, and tick-to-tick change
     magnitude against the baseline BEFORE folding them in, then updates all
     four via Welford's algorithm. Checking first matters: scoring against a
@@ -42,6 +52,10 @@ def check_anomaly(db: Session, ticker: str, price: float, volume: float, bid: fl
 
     All four series share one sample_count, since they're always observed
     together (one poll = one price + volume + bid + ask reading).
+
+    zscore_threshold/stale_threshold are passed in (from RuntimeConfig, via
+    the caller) rather than read from settings directly, so they can be
+    adjusted live from the dashboard without a restart.
     """
     spread = ask - bid
     baseline = db.get(TickerBaseline, ticker)
@@ -95,8 +109,8 @@ def check_anomaly(db: Session, ticker: str, price: float, volume: float, bid: fl
     db.commit()
 
     enough_samples = baseline.sample_count > 5
-    triggered = [name for name, z in signals.items() if enough_samples and z >= settings.anomaly_zscore_threshold]
-    is_stale = enough_samples and baseline.stale_count >= settings.stale_threshold
+    triggered = [name for name, z in signals.items() if enough_samples and z >= zscore_threshold]
+    is_stale = enough_samples and baseline.stale_count >= stale_threshold
 
     if is_stale:
         kind = "+".join(triggered + ["stale"]) if triggered else "stale"
@@ -112,6 +126,15 @@ def check_anomaly(db: Session, ticker: str, price: float, volume: float, bid: fl
         signals=signals,
         stale=is_stale,
         stale_count=baseline.stale_count,
+        baseline_snapshot={
+            "mean": baseline.mean,
+            "stddev": baseline.stddev,
+            "volume_mean": baseline.volume_mean,
+            "volume_stddev": baseline.volume_stddev,
+            "spread_mean": baseline.spread_mean,
+            "spread_stddev": baseline.spread_stddev,
+            "sample_count": baseline.sample_count,
+        },
     )
 
 
@@ -139,7 +162,7 @@ def current_zscores(baseline: TickerBaseline) -> dict[str, float]:
     }
 
 
-def synthetic_anomalous_sample(db: Session, ticker: str, kind: str = "price") -> dict:
+def synthetic_anomalous_sample(db: Session, ticker: str, zscore_threshold: float, kind: str = "price") -> dict:
     """Read-only: computes a value that would cross the anomaly threshold
     for the given signal against the ticker's CURRENT baseline, without
     mutating it.
@@ -162,19 +185,19 @@ def synthetic_anomalous_sample(db: Session, ticker: str, kind: str = "price") ->
 
     if kind == "volume":
         effective_stddev = _effective_stddev(baseline.volume_stddev, max(baseline.volume_mean, 1.0))
-        synthetic_value = baseline.volume_mean + effective_stddev * (settings.anomaly_zscore_threshold + 1)
+        synthetic_value = baseline.volume_mean + effective_stddev * (zscore_threshold + 1)
         z_score = abs(synthetic_value - baseline.volume_mean) / effective_stddev
     elif kind == "spread":
         effective_stddev = _effective_stddev(baseline.spread_stddev, max(baseline.mean, 1.0))
-        synthetic_value = baseline.spread_mean + effective_stddev * (settings.anomaly_zscore_threshold + 1)
+        synthetic_value = baseline.spread_mean + effective_stddev * (zscore_threshold + 1)
         z_score = abs(synthetic_value - baseline.spread_mean) / effective_stddev
     elif kind == "volatility":
         effective_stddev = _effective_stddev(baseline.delta_stddev, max(baseline.mean, 1.0))
-        synthetic_value = baseline.delta_mean + effective_stddev * (settings.anomaly_zscore_threshold + 1)
+        synthetic_value = baseline.delta_mean + effective_stddev * (zscore_threshold + 1)
         z_score = abs(synthetic_value - baseline.delta_mean) / effective_stddev
     else:
         effective_stddev = _effective_stddev(baseline.stddev, baseline.mean)
-        synthetic_value = baseline.mean + effective_stddev * (settings.anomaly_zscore_threshold + 1)
+        synthetic_value = baseline.mean + effective_stddev * (zscore_threshold + 1)
         z_score = abs(synthetic_value - baseline.mean) / effective_stddev
 
     return {"kind": kind, "value": synthetic_value, "z_score": z_score}

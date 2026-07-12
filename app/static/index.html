@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Market Anomaly Alerts</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   :root { color-scheme: light dark; }
   body {
@@ -34,12 +35,37 @@
   }
   .test-btn:hover { background: #2a2d34; }
   .test-btn:disabled { opacity: 0.5; cursor: default; }
+  .ticker-link { cursor: pointer; text-decoration: underline dotted; }
+  .ticker-link:hover { color: #4ade80; }
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: #1a1d24; border: 1px solid #2a2d34; border-radius: 8px; padding: 1.5rem;
+    max-width: 600px; width: 90%; max-height: 85vh; overflow-y: auto; position: relative;
+  }
+  .modal h3 { margin-top: 0; }
+  .modal-close {
+    position: absolute; top: 0.75rem; right: 0.9rem; background: none; border: none;
+    color: #9aa0a6; font-size: 1.3rem; cursor: pointer; line-height: 1;
+  }
+  .modal-close:hover { color: #e6e6e6; }
+  .range-btn {
+    font-size: 0.75rem; padding: 3px 10px; border-radius: 4px; border: 1px solid #3a3d44;
+    background: #21242b; color: #c8ccd2; cursor: pointer; margin-right: 4px;
+  }
+  .range-btn.active { background: #2a5a8f; border-color: #2a5a8f; color: white; }
+  .modal-section { margin-top: 1rem; }
+  .modal table { width: 100%; }
 </style>
 </head>
 <body>
   <h1>Market Anomaly Alerts</h1>
   <div class="sub">
     Live prices update every poll cycle · <span id="conn" class="status disconnected">connecting…</span>
+    · <span class="ticker-link" onclick="openSettingsModal()">⚙ Settings</span>
   </div>
 
   <table>
@@ -51,6 +77,10 @@
 
   <h2 style="font-size: 1.1rem;">Alerts</h2>
   <ul id="alerts"><li class="empty">No alerts yet.</li></ul>
+
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal" id="modal-content"></div>
+  </div>
 
 <script>
 const rows = {};
@@ -70,7 +100,7 @@ async function initTable() {
   for (const t of tickers) {
     const tr = document.createElement("tr");
     tr.id = "row-" + t;
-    tr.innerHTML = `<td>${t}</td><td class="price">—</td><td class="mean">—</td><td class="volume">—</td><td class="spread">—</td><td class="z">—</td><td class="count">—</td><td>
+    tr.innerHTML = `<td><span class="ticker-link" data-ticker="${t}">${t}</span></td><td class="price">—</td><td class="mean">—</td><td class="volume">—</td><td class="spread">—</td><td class="z">—</td><td class="count">—</td><td>
       <button class="test-btn" data-ticker="${t}" data-kind="price">Price</button>
       <button class="test-btn" data-ticker="${t}" data-kind="volume">Volume</button>
       <button class="test-btn" data-ticker="${t}" data-kind="spread">Spread</button>
@@ -124,9 +154,18 @@ function prependAlert(a) {
   const empty = ul.querySelector(".empty");
   if (empty) empty.remove();
   const li = document.createElement("li");
+  if (a.id != null) {
+    li.dataset.id = a.id;
+    li.classList.add("ticker-link");
+  }
   li.innerHTML = `<strong>${a.ticker}</strong> — ${a.message}<span class="ts">${new Date(a.triggered_at).toLocaleString()}</span>`;
   ul.prepend(li);
 }
+
+document.getElementById("alerts").addEventListener("click", (event) => {
+  const li = event.target.closest("li[data-id]");
+  if (li) openAlertModal(li.dataset.id);
+});
 
 function applyPriceUpdate(msg) {
   const tr = rows[msg.ticker];
@@ -167,7 +206,167 @@ function connect() {
   };
 }
 
+function openModal(html) {
+  document.getElementById("modal-content").innerHTML = html;
+  document.getElementById("modal-overlay").classList.add("open");
+}
+
+function closeModal() {
+  document.getElementById("modal-overlay").classList.remove("open");
+}
+
+document.getElementById("modal-overlay").addEventListener("click", (event) => {
+  if (event.target.id === "modal-overlay") closeModal();
+});
+
+const RANGES = ["1D", "1W", "1M", "3M", "1Y"];
+let tickerChart = null;
+
+async function openTickerModal(ticker) {
+  openModal(`
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <h3>${ticker}</h3>
+    <div>${RANGES.map((r) => `<button class="range-btn" data-range="${r}">${r}</button>`).join("")}</div>
+    <canvas id="ticker-chart" height="180"></canvas>
+    <div class="modal-section" id="ticker-fundamentals">Loading…</div>
+  `);
+  document.querySelectorAll(".range-btn").forEach((btn) => {
+    btn.addEventListener("click", () => loadTickerChart(ticker, btn.dataset.range, btn));
+  });
+  loadTickerChart(ticker, "1M", document.querySelector('.range-btn[data-range="1M"]'));
+  loadTickerFundamentals(ticker);
+}
+
+async function loadTickerChart(ticker, range, btnEl) {
+  document.querySelectorAll(".range-btn").forEach((b) => b.classList.remove("active"));
+  if (btnEl) btnEl.classList.add("active");
+
+  const data = await (await fetch(`/tickers/${ticker}/history?range=${range}`)).json();
+  const labels = data.points.map((p) => p.date);
+  const values = data.points.map((p) => p.close);
+
+  const ctx = document.getElementById("ticker-chart");
+  if (!ctx) return; // modal may have closed while this was in flight
+  if (tickerChart) tickerChart.destroy();
+  tickerChart = new Chart(ctx, {
+    type: "line",
+    data: { labels, datasets: [{ label: ticker, data: values, borderColor: "#4ade80", tension: 0.1, pointRadius: 0 }] },
+    options: {
+      responsive: true,
+      scales: {
+        x: { ticks: { color: "#9aa0a6", maxTicksLimit: 8 }, grid: { color: "#2a2d34" } },
+        y: { ticks: { color: "#9aa0a6" }, grid: { color: "#2a2d34" } },
+      },
+      plugins: { legend: { display: false } },
+    },
+  });
+}
+
+async function loadTickerFundamentals(ticker) {
+  const el = document.getElementById("ticker-fundamentals");
+  const data = await (await fetch(`/tickers/${ticker}/fundamentals`)).json();
+  if (!el) return; // modal may have closed while this was in flight
+  const divRows = data.dividends
+    .map((d) => `<tr><td>${d.ex_date}</td><td>$${d.amount.toFixed(2)}</td></tr>`)
+    .join("");
+  const eps = data.earnings.eps_estimate != null ? ` (est. EPS $${data.earnings.eps_estimate.toFixed(2)})` : "";
+  el.innerHTML = `
+    <p><strong>Next earnings:</strong> ${data.earnings.next_date ?? "—"}${eps}</p>
+    <strong>Recent dividends</strong>
+    <table><thead><tr><th>Ex-date</th><th>Amount</th></tr></thead>
+    <tbody>${divRows || '<tr><td colspan="2">None</td></tr>'}</tbody></table>
+  `;
+}
+
+let alertChart = null;
+
+function renderContextTable(context) {
+  if (!context) return "<p>No context recorded for this alert.</p>";
+  const rows = Object.entries(context)
+    .map(([k, v]) => `<tr><td>${k}</td><td>${typeof v === "object" ? JSON.stringify(v) : v}</td></tr>`)
+    .join("");
+  return `<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+async function openAlertModal(alertId) {
+  openModal(`
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <h3>Alert #${alertId}</h3>
+    <div id="alert-body">Loading…</div>
+  `);
+  const data = await (await fetch(`/alerts/${alertId}`)).json();
+  const body = document.getElementById("alert-body");
+  if (!body) return; // modal may have closed while this was in flight
+
+  body.innerHTML = `
+    <p><strong>${data.ticker}</strong> — ${data.message}</p>
+    <p class="ts">${new Date(data.triggered_at).toLocaleString()}</p>
+    <canvas id="alert-chart" height="140"></canvas>
+    <div class="modal-section">${renderContextTable(data.context)}</div>
+  `;
+
+  const ctx = document.getElementById("alert-chart");
+  const labels = data.nearby_prices.map((p) => p.date);
+  const values = data.nearby_prices.map((p) => p.close);
+  if (alertChart) alertChart.destroy();
+  alertChart = new Chart(ctx, {
+    type: "line",
+    data: { labels, datasets: [{ label: data.ticker, data: values, borderColor: "#f87171", tension: 0.1, pointRadius: 2 }] },
+    options: {
+      responsive: true,
+      scales: {
+        x: { ticks: { color: "#9aa0a6", maxTicksLimit: 6 }, grid: { color: "#2a2d34" } },
+        y: { ticks: { color: "#9aa0a6" }, grid: { color: "#2a2d34" } },
+      },
+      plugins: { legend: { display: false } },
+    },
+  });
+}
+
+async function openSettingsModal() {
+  openModal(`
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <h3>Alert Thresholds</h3>
+    <div id="settings-body">Loading…</div>
+  `);
+  const config = await (await fetch("/config")).json();
+  const body = document.getElementById("settings-body");
+  if (!body) return;
+
+  body.innerHTML = `
+    <table>
+      <tr><td>Z-score threshold</td><td><input id="cfg-zscore" type="number" step="0.1" value="${config.anomaly_zscore_threshold}"></td></tr>
+      <tr><td>Stale-quote threshold</td><td><input id="cfg-stale" type="number" step="1" value="${config.stale_threshold}"></td></tr>
+      <tr><td>Cooldown (minutes)</td><td><input id="cfg-cooldown" type="number" step="1" value="${config.alert_cooldown_minutes}"></td></tr>
+      <tr><td>Reconciliation tolerance</td><td><input id="cfg-recon" type="number" step="0.01" value="${config.reconciliation_tolerance}"></td></tr>
+    </table>
+    <div class="modal-section">
+      <button class="test-btn" id="cfg-save">Save</button>
+      <span id="cfg-status" style="margin-left: 0.5rem; font-size: 0.85rem;"></span>
+    </div>
+  `;
+
+  document.getElementById("cfg-save").addEventListener("click", async () => {
+    const status = document.getElementById("cfg-status");
+    const params = new URLSearchParams({
+      anomaly_zscore_threshold: document.getElementById("cfg-zscore").value,
+      stale_threshold: document.getElementById("cfg-stale").value,
+      alert_cooldown_minutes: document.getElementById("cfg-cooldown").value,
+      reconciliation_tolerance: document.getElementById("cfg-recon").value,
+    });
+    const res = await fetch(`/config?${params}`, { method: "POST", headers: { "X-Debug-Token": DEBUG_TOKEN } });
+    const result = await res.json();
+    status.textContent = res.ok ? "Saved." : result.detail || "Failed to save.";
+    status.style.color = res.ok ? "#4ade80" : "#f87171";
+  });
+}
+
 document.getElementById("ticker-rows").addEventListener("click", async (event) => {
+  const link = event.target.closest(".ticker-link");
+  if (link) {
+    openTickerModal(link.dataset.ticker);
+    return;
+  }
   const btn = event.target.closest(".test-btn");
   if (!btn) return;
   const ticker = btn.dataset.ticker;

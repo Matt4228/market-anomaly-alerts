@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, Integer, String
+from sqlalchemy import DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -82,3 +82,25 @@ class Alert(Base):
     price: Mapped[float] = mapped_column(Float)
     z_score: Mapped[float] = mapped_column(Float)
     message: Mapped[str] = mapped_column(String(256))
+    # JSON-serialized snapshot of the signals/baseline stats that were true
+    # AT TRIGGER TIME (captured where the alert already fires in
+    # scheduler.py) — lets the alert detail view show what actually
+    # happened, not today's baseline mislabeled as historical.
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class RuntimeConfig(Base):
+    """Singleton row (id=1) holding the alert thresholds that used to be
+    static env-var-only settings. Once this row exists it's the permanent
+    source of truth — a later env var change has no effect, since the DB
+    row wins. That's intentional (lets thresholds be adjusted live from the
+    dashboard without a redeploy), but worth knowing if a threshold ever
+    looks like it "isn't taking effect" after an env/deploy change."""
+
+    __tablename__ = "runtime_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    anomaly_zscore_threshold: Mapped[float] = mapped_column(Float)
+    stale_threshold: Mapped[int] = mapped_column(Integer)
+    alert_cooldown_minutes: Mapped[int] = mapped_column(Integer)
+    reconciliation_tolerance: Mapped[float] = mapped_column(Float)

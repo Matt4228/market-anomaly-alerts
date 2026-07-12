@@ -18,16 +18,15 @@ class AlertManager:
     until the cooldown window passes or the anomaly clears.
     """
 
-    def __init__(self, cooldown_minutes: int):
-        self.cooldown = timedelta(minutes=cooldown_minutes)
+    def __init__(self):
         self._last_alert_at: dict[str, datetime] = {}
         self._connections: set[WebSocket] = set()
 
-    def should_alert(self, ticker: str) -> bool:
+    def should_alert(self, ticker: str, cooldown_minutes: int) -> bool:
         last = self._last_alert_at.get(ticker)
         if last is None:
             return True
-        return datetime.now(timezone.utc) - last >= self.cooldown
+        return datetime.now(timezone.utc) - last >= timedelta(minutes=cooldown_minutes)
 
     def record_alert(self, ticker: str) -> None:
         self._last_alert_at[ticker] = datetime.now(timezone.utc)
@@ -73,4 +72,4 @@ class AlertManager:
             logger.exception("failed to post Slack notification")
 
 
-alert_manager = AlertManager(cooldown_minutes=settings.alert_cooldown_minutes)
+alert_manager = AlertManager()
