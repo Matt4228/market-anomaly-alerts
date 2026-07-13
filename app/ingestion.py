@@ -67,11 +67,19 @@ def _fetch_price_blocking(ticker: str) -> dict:
 
     row = df.iloc[0]
     # yfinance's quote schema differs by asset type: EQUITY rows include
-    # last_price, ETF rows (e.g. SPY) don't. bid/ask midpoint is present
-    # on both, so it's used uniformly instead of branching per asset type.
+    # last_price, ETF rows (e.g. SPY) don't, so bid/ask midpoint is used
+    # uniformly instead of branching per asset type. Confirmed live
+    # (2026-07-13): some ETFs, SPY included, come back with bid=ask=0 from
+    # this endpoint even during regular trading hours -- top-of-book isn't
+    # populated for every symbol the way it is for individual equities.
+    # Falling through to a $0 baseline would be worse than the extra call,
+    # so fall back to fast_info's last traded price (same field the
+    # independent reconciliation reading already uses) when that happens.
     bid = float(row["bid"])
     ask = float(row["ask"])
     price = (bid + ask) / 2
+    if price == 0:
+        price = float(yf.Ticker(ticker).fast_info.last_price)
     return {
         "ticker": ticker,
         "price": price,
