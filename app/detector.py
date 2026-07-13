@@ -46,7 +46,7 @@ def _effective_stddev(stddev: float, scale: float) -> float:
 
     Without this, a baseline with near-zero real variance (e.g. a
     data-quality issue, or a market that's been closed) turns any
-    ordinary tick into a z-score in the millions/billions — dividing a
+    ordinary tick into a z-score in the millions/billions - dividing a
     real delta by a near-zero denominator, not a genuine anomaly.
 
     Parameters
@@ -225,7 +225,7 @@ def current_zscores(baseline: TickerBaseline) -> dict[str, float]:
     Slightly different from the z-score computed live in `check_anomaly`:
     that one compares an incoming point against the baseline BEFORE
     folding it in, whereas this compares the baseline's last point
-    against its own current (already-updated) stats — a small
+    against its own current (already-updated) stats - a small
     self-referential difference that doesn't matter for a display/
     backfill purpose like this one.
 
@@ -254,10 +254,10 @@ def synthetic_anomalous_sample(db: Session, ticker: str, zscore_threshold: float
     signal, against the ticker's current baseline, without mutating it.
 
     Used by the manual test-trigger endpoint so a demo alert doesn't
-    permanently skew real baseline stats with a synthetic data point —
+    permanently skew real baseline stats with a synthetic data point -
     unlike `check_anomaly`, this never writes to `ticker_baseline`.
     "stale" is a multi-poll state rather than a single synthetic value,
-    so it isn't supported here — it's exercised by the real poll cycle
+    so it isn't supported here - it's exercised by the real poll cycle
     only.
 
     Parameters
@@ -274,7 +274,7 @@ def synthetic_anomalous_sample(db: Session, ticker: str, zscore_threshold: float
     dict
         `{"kind", "value", "z_score"}` on success, or
         `{"error", "sample_count"}` if there isn't enough baseline data
-        yet — callers use this to report real progress ("3/6 samples so
+        yet - callers use this to report real progress ("3/6 samples so
         far") instead of a flat "no baseline" message.
     """
     baseline = db.get(TickerBaseline, ticker)

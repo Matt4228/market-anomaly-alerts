@@ -9,7 +9,7 @@ class TTLCache:
     """Short-TTL cache in front of the price fetcher.
 
     Deliberately short (seconds, not minutes): anomaly detection needs
-    reasonably fresh prices, so this isn't a "cache aggressively" layer —
+    reasonably fresh prices, so this isn't a "cache aggressively" layer -
     it just collapses duplicate fetches for the same ticker within one
     poll cycle instead of hitting the provider twice for the same data.
 

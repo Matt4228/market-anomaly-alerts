@@ -7,90 +7,121 @@
 <link rel="icon" type="image/png" href="/static/window-icon.png">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-  :root { color-scheme: light dark; }
+  :root {
+    color-scheme: dark;
+    /* Bloomberg-terminal-inspired palette, dialed back from the real thing:
+       true-black field, amber as the primary "terminal" voice for labels/
+       symbols, green/red kept for up/down and alert severity (already the
+       convention every trading UI trains people to expect). */
+    --bg: #000000;
+    --bg-panel: #0a0a0a;
+    --bg-card: #0d0d0d;
+    --border: #2a2a2a;
+    --border-amber: #4a3a10;
+    --text: #d8d8d0;
+    --text-dim: #7a7a72;
+    --amber: #ffa500;
+    --amber-bright: #ffc966;
+    --green: #00d964;
+    --red: #ff4136;
+    --blue: #4da6ff;
+  }
   /* Without this, any element with both an explicit width and padding
      (e.g. the mobile ticker cards: width:100% + padding:1rem) renders
-     wider than its container — padding adds on top of the width instead
+     wider than its container - padding adds on top of the width instead
      of being included in it. Classic, easy-to-miss overflow cause. */
   *, *::before, *::after { box-sizing: border-box; }
   body {
-    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-    max-width: 900px;
+    font-family: "Cascadia Code", "SF Mono", "Roboto Mono", Consolas, ui-monospace, monospace;
+    max-width: 1080px;
     margin: 2rem auto;
     padding: 0 1rem;
-    background: #0f1115;
-    color: #e6e6e6;
+    background: var(--bg);
+    color: var(--text);
   }
-  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  h1 {
+    font-size: 1.3rem; margin-bottom: 0.4rem; color: var(--amber);
+    letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700;
+    padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-amber);
+  }
   .sub {
-    color: #9aa0a6; font-size: 0.9rem; margin-bottom: 1.5rem;
+    color: var(--text-dim); font-size: 0.85rem; margin-bottom: 1.5rem;
     display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem;
   }
-  .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; }
-  .status.connected { background: #163d24; color: #4ade80; }
-  .status.disconnected { background: #3d1616; color: #f87171; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
-  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #2a2d34; font-variant-numeric: tabular-nums; }
-  th { color: #9aa0a6; font-weight: 500; font-size: 0.85rem; }
-  tr.flash { animation: flash 1.2s ease-out; }
-  @keyframes flash { from { background: #4a1414; } to { background: transparent; } }
-  .zscore-hot { color: #f87171; font-weight: 600; }
-  #alerts { list-style: none; padding: 0; margin: 0; }
-  #alerts li { padding: 0.6rem 0.75rem; border-left: 3px solid #f87171; background: #1a1d24; margin-bottom: 0.5rem; border-radius: 4px; font-size: 0.9rem; }
-  #alerts li .ts { color: #9aa0a6; font-size: 0.75rem; display: block; margin-top: 2px; }
-  #alerts li.alert-item { cursor: pointer; transition: background-color 0.15s ease, color 0.15s ease; }
-  #alerts li.alert-item:hover { color: #4ade80; background-color: #242a33; }
-  .empty { color: #6b7280; font-style: italic; font-size: 0.9rem; }
-  .test-btn {
-    font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; border: 1px solid #3a3d44;
-    background: #21242b; color: #c8ccd2; cursor: pointer;
+  .status {
+    display: inline-block; padding: 2px 8px; border-radius: 2px; font-size: 0.78rem;
+    border: 1px solid; text-transform: uppercase; letter-spacing: 0.04em;
   }
-  .test-btn:hover { background: #2a2d34; }
-  .test-btn:disabled { opacity: 0.5; cursor: default; }
+  .status.connected { background: #001a0a; color: var(--green); border-color: var(--green); }
+  .status.disconnected { background: #1a0505; color: var(--red); border-color: var(--red); }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
+  #ticker-table { font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+  th {
+    color: var(--amber); font-weight: 600; font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid var(--border-amber);
+    white-space: nowrap;
+  }
+  tbody tr:hover { background: #0f0d05; }
+  tr.flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: #331a00; } to { background: transparent; } }
+  .zscore-hot { color: var(--red); font-weight: 700; }
+  #alerts { list-style: none; padding: 0; margin: 0; }
+  #alerts li { padding: 0.6rem 0.75rem; border-left: 3px solid var(--red); background: var(--bg-card); border: 1px solid var(--border); border-left: 3px solid var(--red); margin-bottom: 0.5rem; border-radius: 2px; font-size: 0.88rem; }
+  #alerts li .ts { color: var(--text-dim); font-size: 0.72rem; display: block; margin-top: 2px; }
+  #alerts li.alert-item { cursor: pointer; transition: background-color 0.15s ease, color 0.15s ease; }
+  #alerts li.alert-item:hover { color: var(--amber-bright); background-color: #150f00; }
+  .empty { color: var(--text-dim); font-style: italic; font-size: 0.9rem; }
+  .test-btn {
+    font-family: inherit; font-size: 0.72rem; padding: 3px 8px; border-radius: 2px; border: 1px solid var(--border-amber);
+    background: var(--bg-panel); color: var(--amber); cursor: pointer; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .test-btn:hover { background: var(--amber); color: #000; }
+  .test-btn:disabled { opacity: 0.4; cursor: default; background: var(--bg-panel); color: var(--text-dim); }
   .ticker-link {
-    cursor: pointer; font-weight: 600; color: #7dd3fc; padding: 2px 8px; border-radius: 5px;
+    cursor: pointer; font-weight: 700; color: var(--amber); padding: 2px 8px; border-radius: 2px;
     transition: background-color 0.15s ease, color 0.15s ease;
   }
-  .ticker-link:hover { background-color: rgba(74, 222, 128, 0.15); color: #4ade80; }
+  .ticker-link:hover { background-color: var(--amber); color: #000; }
   .spinner {
-    display: inline-block; width: 20px; height: 20px; border: 3px solid #2a2d34;
-    border-top-color: #4ade80; border-radius: 50%; animation: spin 0.7s linear infinite;
+    display: inline-block; width: 20px; height: 20px; border: 3px solid var(--border);
+    border-top-color: var(--amber); border-radius: 50%; animation: spin 0.7s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .loading-block {
     display: flex; align-items: center; justify-content: center; gap: 0.6rem;
-    min-height: 140px; color: #9aa0a6; font-size: 0.85rem;
+    min-height: 140px; color: var(--text-dim); font-size: 0.85rem;
   }
   .modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    position: fixed; inset: 0; background: rgba(0,0,0,0.75);
     display: none; align-items: center; justify-content: center; z-index: 100;
   }
   .modal-overlay.open { display: flex; }
   .modal {
-    background: #1a1d24; border: 1px solid #2a2d34; border-radius: 8px; padding: 1.5rem;
+    background: var(--bg-card); border: 1px solid var(--border-amber); border-radius: 3px; padding: 1.5rem;
     max-width: 600px; width: 90%; max-height: 85vh; overflow-y: auto; position: relative;
   }
-  .modal h3 { margin-top: 0; }
+  .modal h3 { margin-top: 0; color: var(--amber); text-transform: uppercase; letter-spacing: 0.04em; font-size: 1rem; }
   .modal-close {
     position: absolute; top: 0.75rem; right: 0.9rem; background: none; border: none;
-    color: #9aa0a6; font-size: 1.3rem; cursor: pointer; line-height: 1;
+    color: var(--text-dim); font-size: 1.3rem; cursor: pointer; line-height: 1;
   }
-  .modal-close:hover { color: #e6e6e6; }
+  .modal-close:hover { color: var(--amber); }
   .range-btn {
-    font-size: 0.75rem; padding: 3px 10px; border-radius: 4px; border: 1px solid #3a3d44;
-    background: #21242b; color: #c8ccd2; cursor: pointer; margin-right: 4px;
+    font-family: inherit; font-size: 0.72rem; padding: 3px 10px; border-radius: 2px; border: 1px solid var(--border-amber);
+    background: var(--bg-panel); color: var(--amber); cursor: pointer; margin-right: 4px; text-transform: uppercase;
   }
-  .range-btn.active { background: #2a5a8f; border-color: #2a5a8f; color: white; }
+  .range-btn.active { background: var(--blue); border-color: var(--blue); color: #000; font-weight: 700; }
   .modal-section { margin-top: 1rem; }
   .modal table { width: 100%; table-layout: fixed; }
   .modal table td { word-break: break-word; }
   .modal input[type="number"] {
-    width: 100%; box-sizing: border-box; background: #0f1115; border: 1px solid #3a3d44;
-    color: #e6e6e6; border-radius: 4px; padding: 4px 8px;
+    width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border-amber);
+    color: var(--text); border-radius: 2px; padding: 4px 8px; font-family: inherit;
   }
   .modal .mini-card table { table-layout: auto; } /* dividends: content is short, auto fits better */
 
-  /* Mobile: Transient.AI is mobile-first, so this isn't an afterthought —
+  /* Mobile: Transient.AI is mobile-first, so this isn't an afterthought -
      roughly 25-50% bigger touch targets/text throughout, and the ticker
      table becomes stacked cards (an 8-column table + 4 buttons per row
      can't work at any font size on a ~375px screen, only a structural
@@ -106,7 +137,7 @@
     .status { padding: 4px 10px; font-size: 0.9rem; }
 
     /* Ticker table -> stacked cards, 2 columns of stats per card. Scoped
-       to #ticker-table specifically — NOT a bare table/tbody/tr/td rule —
+       to #ticker-table specifically - NOT a bare table/tbody/tr/td rule -
        so modal tables (dividends, settings, alert context) keep their
        normal compact appearance instead of also being cardified. */
     #ticker-table { display: block; width: 100%; border-collapse: separate; border-spacing: 0; }
@@ -114,7 +145,7 @@
     #ticker-table tbody, #ticker-table tr { display: block; width: 100%; }
     #ticker-table tbody tr {
       display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem 1rem;
-      background: #1a1d24; border: 1px solid #2a2d34; border-radius: 10px;
+      background: var(--bg-card); border: 1px solid var(--border-amber); border-radius: 3px;
       margin-bottom: 1rem; padding: 1rem; width: 100%;
     }
     #ticker-table tbody td {
@@ -126,15 +157,16 @@
     #ticker-table tbody td:first-child {
       grid-column: 1 / -1;
       font-size: 1.1rem; font-weight: 700; justify-content: flex-start;
-      padding-bottom: 0.6rem; margin-bottom: 0.2rem; border-bottom: 1px solid #2a2d34;
+      padding-bottom: 0.6rem; margin-bottom: 0.2rem; border-bottom: 1px solid var(--border);
     }
     #ticker-table tbody td[data-label]::before {
-      content: attr(data-label); color: #9aa0a6; font-weight: 500; font-size: 0.7rem;
+      content: attr(data-label); color: var(--text-dim); font-weight: 500; font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.03em;
     }
     #ticker-table tbody td[data-label="Test Alerts"] {
       grid-column: 1 / -1;
       display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
-      padding-top: 0.6rem; margin-top: 0.2rem; border-top: 1px solid #2a2d34;
+      padding-top: 0.6rem; margin-top: 0.2rem; border-top: 1px solid var(--border);
     }
     #ticker-table tbody td[data-label="Test Alerts"]::before {
       grid-column: 1 / -1; text-align: center; margin-bottom: 0.2rem;
@@ -145,7 +177,7 @@
 
     /* Dividends: one compact card, not one card per row */
     .mini-card {
-      background: #1a1d24; border: 1px solid #2a2d34; border-radius: 10px; padding: 0.85rem;
+      background: var(--bg-card); border: 1px solid var(--border-amber); border-radius: 3px; padding: 0.85rem;
     }
 
     /* Modals: wider, bigger inputs (16px minimum stops iOS auto-zoom-on-focus) */
@@ -185,12 +217,12 @@
 <script>
 const rows = {};
 // Baked in at deploy time for the dashboard's own test buttons to work.
-// This means it's visible via view-source — good enough to stop casual/
+// This means it's visible via view-source - good enough to stop casual/
 // automated hits on the endpoint, not a substitute for real auth.
 const DEBUG_TOKEN = "__DEBUG_TOKEN__";
 
 // Draws a dashed vertical guide at the hovered x-position, top to bottom of
-// the chart area — paired with interaction:{mode:"index",intersect:false}
+// the chart area - paired with interaction:{mode:"index",intersect:false}
 // on each chart so the tooltip triggers from x-position alone, not from
 // needing to hover precisely on the line itself.
 Chart.register({
@@ -206,23 +238,23 @@ Chart.register({
     ctx.moveTo(x, chartArea.top);
     ctx.lineTo(x, chartArea.bottom);
     ctx.lineWidth = 1;
-    ctx.strokeStyle = "#6b7280";
+    ctx.strokeStyle = "#7a7a72";
     ctx.stroke();
     ctx.restore();
   },
 });
 
 function fmtNum(n, digits = 2) {
-  return typeof n === "number" ? n.toFixed(digits) : "—";
+  return typeof n === "number" ? n.toFixed(digits) : "-";
 }
 
 // price_history timestamps are stored genuinely in UTC (datetime.now(timezone.utc)
-// in app/ingestion.py) — this converts to Eastern time for display (DST-aware via
+// in app/ingestion.py) - this converts to Eastern time for display (DST-aware via
 // the browser's timezone database, not a naive fixed offset) and drops
 // seconds/fractional-seconds/the "+00:00" suffix. Ticker-history chart dates
 // (from OpenBB/yfinance) are a different case: they come back already
 // timezone-naive but already localized to market time (verified: intraday bars
-// start at "09:30:00", matching NYSE open) — applying this same conversion to
+// start at "09:30:00", matching NYSE open) - applying this same conversion to
 // those would incorrectly shift them again, so this is only used for
 // price_history-derived dates (the alert detail chart), not ticker history.
 function fmtEasternDate(utcString) {
@@ -237,7 +269,7 @@ function fmtEasternDate(utcString) {
 
 // Ticker-history dates (1D/1W ranges) are already correctly localized (see
 // note above) so this is pure string trimming, not a Date/timezone
-// conversion — no risk of double-shifting an already-correct value. Strips
+// conversion - no risk of double-shifting an already-correct value. Strips
 // trailing ":SS" from "YYYY-MM-DD HH:MM:SS"; leaves date-only strings
 // (1M/3M/1Y ranges, no time component) untouched.
 function fmtProviderDate(dateStr) {
@@ -251,7 +283,7 @@ async function initTable() {
   for (const t of tickers) {
     const tr = document.createElement("tr");
     tr.id = "row-" + t;
-    tr.innerHTML = `<td><span class="ticker-link" data-ticker="${t}">${t}</span></td><td class="price" data-label="Price">—</td><td class="mean" data-label="Baseline Mean">—</td><td class="volume" data-label="Volume">—</td><td class="spread" data-label="Spread">—</td><td class="z" data-label="Z-Score">—</td><td class="count" data-label="Samples">—</td><td data-label="Test Alerts">
+    tr.innerHTML = `<td><span class="ticker-link" data-ticker="${t}">${t}</span></td><td class="price" data-label="Price">-</td><td class="mean" data-label="Baseline Mean">-</td><td class="volume" data-label="Volume">-</td><td class="spread" data-label="Spread">-</td><td class="z" data-label="Z-Score">-</td><td class="count" data-label="Samples">-</td><td data-label="Test Alerts">
       <button class="test-btn" data-ticker="${t}" data-kind="price">Price</button>
       <button class="test-btn" data-ticker="${t}" data-kind="volume">Volume</button>
       <button class="test-btn" data-ticker="${t}" data-kind="spread">Spread</button>
@@ -271,7 +303,7 @@ async function refreshBaseline(ticker) {
   tr.querySelector(".count").textContent = b.sample_count ?? "0";
 
   // Backfills price/volume/spread/z-score immediately on page load/refresh
-  // instead of leaving them blank until the next WebSocket broadcast — all
+  // instead of leaving them blank until the next WebSocket broadcast - all
   // of this is already sitting in the baseline row.
   if (typeof b.last_price === "number") {
     tr.querySelector(".price").textContent = fmtNum(b.last_price);
@@ -309,7 +341,7 @@ function prependAlert(a) {
     li.dataset.id = a.id;
     li.classList.add("alert-item");
   }
-  li.innerHTML = `<strong>${a.ticker}</strong> — ${a.message}<span class="ts">${new Date(a.triggered_at).toLocaleString()}</span>`;
+  li.innerHTML = `<strong>${a.ticker}</strong> - ${a.message}<span class="ts">${new Date(a.triggered_at).toLocaleString()}</span>`;
   ul.prepend(li);
 }
 
@@ -403,13 +435,13 @@ async function loadTickerChart(ticker, range, btnEl) {
   if (tickerChart) tickerChart.destroy();
   tickerChart = new Chart(ctx, {
     type: "line",
-    data: { labels, datasets: [{ label: ticker, data: values, borderColor: "#4ade80", tension: 0.1, pointRadius: 0 }] },
+    data: { labels, datasets: [{ label: ticker, data: values, borderColor: "#ffa500", tension: 0.1, pointRadius: 0 }] },
     options: {
       responsive: true,
       interaction: { mode: "index", intersect: false },
       scales: {
-        x: { ticks: { color: "#9aa0a6", maxTicksLimit: 8 }, grid: { color: "#2a2d34" } },
-        y: { ticks: { color: "#9aa0a6" }, grid: { color: "#2a2d34" } },
+        x: { ticks: { color: "#7a7a72", maxTicksLimit: 8 }, grid: { color: "#2a2a2a" } },
+        y: { ticks: { color: "#7a7a72" }, grid: { color: "#2a2a2a" } },
       },
       plugins: { legend: { display: false } },
     },
@@ -425,7 +457,7 @@ async function loadTickerFundamentals(ticker) {
     .join("");
   const eps = data.earnings.eps_estimate != null ? ` (est. EPS $${data.earnings.eps_estimate.toFixed(2)})` : "";
   el.innerHTML = `
-    <p><strong>Next earnings:</strong> ${data.earnings.next_date ?? "—"}${eps}</p>
+    <p><strong>Next earnings:</strong> ${data.earnings.next_date ?? "-"}${eps}</p>
     <div class="mini-card">
       <strong>Recent dividends</strong>
       <table><thead><tr><th>Ex-date</th><th>Amount</th></tr></thead>
@@ -457,7 +489,7 @@ async function openAlertModal(alertId) {
   if (!body) return; // modal may have closed while this was in flight
 
   body.innerHTML = `
-    <p><strong>${data.ticker}</strong> — ${data.message}</p>
+    <p><strong>${data.ticker}</strong> - ${data.message}</p>
     <p class="ts">${new Date(data.triggered_at).toLocaleString()}</p>
     <canvas id="alert-chart" height="140"></canvas>
     <div class="modal-section">${renderContextTable(data.context)}</div>
@@ -469,13 +501,13 @@ async function openAlertModal(alertId) {
   if (alertChart) alertChart.destroy();
   alertChart = new Chart(ctx, {
     type: "line",
-    data: { labels, datasets: [{ label: data.ticker, data: values, borderColor: "#f87171", tension: 0.1, pointRadius: 2 }] },
+    data: { labels, datasets: [{ label: data.ticker, data: values, borderColor: "#ff4136", tension: 0.1, pointRadius: 2 }] },
     options: {
       responsive: true,
       interaction: { mode: "index", intersect: false },
       scales: {
-        x: { ticks: { color: "#9aa0a6", maxTicksLimit: 6 }, grid: { color: "#2a2d34" } },
-        y: { ticks: { color: "#9aa0a6" }, grid: { color: "#2a2d34" } },
+        x: { ticks: { color: "#7a7a72", maxTicksLimit: 6 }, grid: { color: "#2a2a2a" } },
+        y: { ticks: { color: "#7a7a72" }, grid: { color: "#2a2a2a" } },
       },
       plugins: { legend: { display: false } },
     },
@@ -493,8 +525,8 @@ async function renderEditTickersBody() {
   const rows = tickers
     .map(
       (t) => `
-    <li style="display:flex;align-items:center;justify-content:space-between;padding:0.4rem 0;border-bottom:1px solid #2a2d34;">
-      <span>${t}</span>
+    <li style="display:flex;align-items:center;justify-content:space-between;padding:0.4rem 0;border-bottom:1px solid var(--border);">
+      <span style="color:var(--amber);font-weight:700;">${t}</span>
       <button class="test-btn remove-ticker-btn" data-ticker="${t}" ${atMin ? "disabled" : ""}>Remove</button>
     </li>`
     )
@@ -503,10 +535,10 @@ async function renderEditTickersBody() {
   body.innerHTML = `
     <ul style="list-style:none;padding:0;margin:0 0 1rem 0;">${rows}</ul>
     <div style="display:flex;gap:0.5rem;">
-      <input id="new-ticker-input" placeholder="e.g. AMD" style="flex:1;background:#0f1115;border:1px solid #3a3d44;color:#e6e6e6;border-radius:4px;padding:4px 8px;" ${atMax ? "disabled" : ""}>
+      <input id="new-ticker-input" placeholder="e.g. AMD" style="flex:1;font-family:inherit;background:var(--bg);border:1px solid var(--border-amber);color:var(--text);border-radius:2px;padding:4px 8px;" ${atMax ? "disabled" : ""}>
       <button class="test-btn" id="add-ticker-btn" ${atMax ? "disabled" : ""}>Add</button>
     </div>
-    ${atMax ? '<p style="color:#9aa0a6;font-size:0.8rem;margin-top:0.5rem;">Maximum of 5 tickers reached — remove one to add another.</p>' : ""}
+    ${atMax ? '<p style="color:var(--text-dim);font-size:0.8rem;margin-top:0.5rem;">Maximum of 5 tickers reached - remove one to add another.</p>' : ""}
     <div id="edit-tickers-status" style="margin-top:0.5rem;font-size:0.85rem;"></div>
   `;
 
@@ -522,18 +554,18 @@ async function addTicker() {
   const status = document.getElementById("edit-tickers-status");
   const ticker = input.value.trim().toUpperCase();
   if (!ticker) return;
-  status.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Validating — checking we can fetch data for this symbol…';
-  status.style.color = "#9aa0a6";
+  status.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Validating - checking we can fetch data for this symbol…';
+  status.style.color = "var(--text-dim)";
   const res = await fetch(`/tickers/${ticker}`, { method: "POST", headers: { "X-Debug-Token": DEBUG_TOKEN } });
   const result = await res.json();
   if (!res.ok) {
     status.textContent = result.detail || "Failed to add ticker.";
-    status.style.color = "#f87171";
+    status.style.color = "var(--red)";
     return;
   }
   await renderEditTickersBody();
   document.getElementById("edit-tickers-status").textContent = `Added ${ticker}.`;
-  document.getElementById("edit-tickers-status").style.color = "#4ade80";
+  document.getElementById("edit-tickers-status").style.color = "var(--green)";
   initTable();
 }
 
@@ -545,7 +577,7 @@ async function removeTicker(ticker) {
     const status = document.getElementById("edit-tickers-status");
     if (status) {
       status.textContent = result.detail || "Failed to remove ticker.";
-      status.style.color = "#f87171";
+      status.style.color = "var(--red)";
     }
     return;
   }
@@ -600,7 +632,7 @@ async function openSettingsModal() {
     const res = await fetch(`/config?${params}`, { method: "POST", headers: { "X-Debug-Token": DEBUG_TOKEN } });
     const result = await res.json();
     status.textContent = res.ok ? "Saved." : result.detail || "Failed to save.";
-    status.style.color = res.ok ? "#4ade80" : "#f87171";
+    status.style.color = res.ok ? "var(--green)" : "var(--red)";
   });
 }
 
@@ -624,7 +656,7 @@ document.getElementById("ticker-rows").addEventListener("click", async (event) =
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      alert(body.detail || "Test alert failed — check server logs.");
+      alert(body.detail || "Test alert failed - check server logs.");
     }
   } finally {
     btn.disabled = false;

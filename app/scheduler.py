@@ -24,7 +24,7 @@ async def poll_cycle() -> None:
     doesn't take down the whole cycle.
     """
     # Read fresh each cycle (not cached) so adding/removing a ticker via the
-    # dashboard takes effect on the next poll, not just after a restart —
+    # dashboard takes effect on the next poll, not just after a restart -
     # same reasoning as RuntimeConfig being read fresh per operation.
     db = SessionLocal()
     try:
@@ -161,7 +161,7 @@ def _build_message(
     str
     """
     if result.stale:
-        base = f"{ticker} looks halted/stale — no price movement and zero volume for {result.stale_count} consecutive polls"
+        base = f"{ticker} looks halted/stale - no price movement and zero volume for {result.stale_count} consecutive polls"
         triggered_others = [name for name in result.signals if name in result.kind.split("+")]
         if triggered_others:
             extra = "; ".join(_describe_signal(n, result.signals[n], price, volume, spread) for n in triggered_others)
@@ -178,7 +178,7 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
     point, and broadcasts a live tick regardless of whether it's an anomaly.
 
     Shared by the real poller and the manual test-trigger endpoint, so
-    both go through the exact same detection/alert code path — the test
+    both go through the exact same detection/alert code path - the test
     endpoint exercises the real pipeline, not a separate mock of it.
 
     Parameters
@@ -269,7 +269,7 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
 
 async def trigger_test_alert(ticker: str, kind: str = "price") -> dict:
     """Fires a real alert (stored, broadcast, Slack-notified) using a
-    synthetic value computed against the ticker's current baseline — for
+    synthetic value computed against the ticker's current baseline - for
     demoing the alert path on demand (any signal type except "stale", which
     is a multi-poll state rather than a single synthetic value) rather than
     waiting on real market volatility to cross the threshold.
@@ -277,7 +277,7 @@ async def trigger_test_alert(ticker: str, kind: str = "price") -> dict:
     Deliberately bypasses alert_manager.should_alert() on the way in (a
     manual trigger should always fire when called), but still calls
     record_alert() afterward so it participates in cooldown bookkeeping
-    same as a real alert — calling this repeatedly won't spam duplicates.
+    same as a real alert - calling this repeatedly won't spam duplicates.
 
     Parameters
     ----------
@@ -305,9 +305,9 @@ async def trigger_test_alert(ticker: str, kind: str = "price") -> dict:
 
     if "error" in sample:
         if sample["error"] == "no_baseline":
-            raise ValueError(f"no baseline yet for {ticker} — wait for the first real poll cycle")
+            raise ValueError(f"no baseline yet for {ticker} - wait for the first real poll cycle")
         raise ValueError(
-            f"{ticker} has {sample['sample_count']}/6 samples so far — wait for a few more real poll cycles"
+            f"{ticker} has {sample['sample_count']}/6 samples so far - wait for a few more real poll cycles"
         )
 
     synthetic_value = sample["value"]

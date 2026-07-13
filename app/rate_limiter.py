@@ -63,7 +63,7 @@ async def with_backoff(
     """Retry `fn` with exponential backoff and jitter.
 
     Jitter matters here specifically because every ticker in a poll cycle
-    could hit a limit at once — without jitter they'd all retry in
+    could hit a limit at once - without jitter they'd all retry in
     lockstep and re-trigger the same limit on the next attempt.
 
     Parameters

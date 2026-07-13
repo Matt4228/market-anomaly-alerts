@@ -12,7 +12,7 @@ import yfinance as yf
 # Imported at module load (main thread) rather than inside the function that
 # runs via asyncio.to_thread. OpenBB's first-ever import runs a one-time
 # package-build step that registers a SIGTERM handler, and Python only
-# allows registering signal handlers from the main thread — deferring this
+# allows registering signal handlers from the main thread - deferring this
 # import into a worker thread crashes every single call with "signal only
 # works in main thread of the main interpreter" (this is Linux-strict;
 # Windows silently allows it, so it can look fine in local dev and only
@@ -32,13 +32,13 @@ logger = logging.getLogger(__name__)
 
 
 def _fetch_price_blocking(ticker: str) -> dict:
-    """Blocking OpenBB call — dispatched via asyncio.to_thread so it
+    """Blocking OpenBB call - dispatched via asyncio.to_thread so it
     doesn't block the FastAPI event loop that the scheduler and
     websocket broadcasts also run on.
 
     Uses the live quote endpoint, not historical(): historical() defaults
     to daily bars, so polling it every few minutes just re-fetches the
-    same last-completed-day close over and over — no price movement ever
+    same last-completed-day close over and over - no price movement ever
     shows up, and the anomaly detector never has real variance to work
     with. quote() returns the actual current last-traded price.
 
@@ -112,12 +112,12 @@ async def fetch_latest_price(ticker: str) -> dict:
 
 def _fetch_reconciliation_price_blocking(ticker: str) -> float:
     """A second, independently-fetched reading of the same ticker, used
-    only to cross-check against the primary OpenBB quote — not the
+    only to cross-check against the primary OpenBB quote - not the
     ingestion path itself.
 
     Calls yfinance directly rather than through OpenBB's wrapper. Worth
     being honest about what this does and doesn't prove: both ultimately
-    trace back to Yahoo Finance, so this isn't two unrelated vendors —
+    trace back to Yahoo Finance, so this isn't two unrelated vendors -
     but it's a genuinely different code path/endpoint, so timing and
     caching differences between them are real, and catching a large
     discrepancy is still a legitimate reconciliation check, the same
@@ -137,7 +137,7 @@ def _fetch_reconciliation_price_blocking(ticker: str) -> float:
 
 async def fetch_reconciliation_price(ticker: str) -> float | None:
     """Best-effort: returns None on any failure rather than raising, since
-    this is a supplementary cross-check, not the primary ingestion path —
+    this is a supplementary cross-check, not the primary ingestion path -
     a hiccup here should never affect the main price/anomaly pipeline.
 
     Parameters

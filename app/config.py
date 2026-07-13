@@ -3,7 +3,7 @@
 Note the split in responsibility: alert thresholds defined here
 (`anomaly_zscore_threshold`, `stale_threshold`, `alert_cooldown_minutes`,
 `reconciliation_tolerance`) and the tracked ticker list (`tracked_tickers`)
-are only used as *seed defaults* — see `runtime_config.py` and
+are only used as *seed defaults* - see `runtime_config.py` and
 `tracked_tickers.py`, which move the live values into Postgres so they're
 adjustable from the dashboard without a redeploy. Everything else here
 (DB connection, provider, rate limits, Slack, debug token) stays
@@ -80,7 +80,7 @@ class Settings(BaseSettings):
         -------
         list of str
             Ticker symbols from `tracked_tickers`. Only used to seed
-            `tracked_ticker` on first startup — see `tracked_tickers.py`.
+            `tracked_ticker` on first startup - see `tracked_tickers.py`.
         """
         return [t.strip().upper() for t in self.tracked_tickers.split(",") if t.strip()]
 

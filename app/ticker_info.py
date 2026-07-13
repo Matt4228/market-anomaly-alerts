@@ -1,5 +1,5 @@
 """On-demand historical price and fundamentals lookups for the ticker
-detail modal — mirrors app/ingestion.py's blocking-call/to_thread/shared
+detail modal - mirrors app/ingestion.py's blocking-call/to_thread/shared
 rate-limiter pattern, but for one-off lookups rather than the live poll.
 Nothing here is persisted.
 """
@@ -12,7 +12,7 @@ import yfinance as yf
 from openbb import obb  # see app/ingestion.py for why this must be a module-level import
 
 from app.config import settings
-from app.ingestion import limiter  # shared token bucket — one budget across all OpenBB/yfinance calls
+from app.ingestion import limiter  # shared token bucket - one budget across all OpenBB/yfinance calls
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ async def fetch_history(ticker: str, range_key: str) -> list[dict]:
 
 def _fetch_fundamentals_blocking(ticker: str) -> dict:
     """Blocking dividends (OpenBB) + next-earnings (yfinance) lookup.
-    Each half fails independently — a dividends or earnings-calendar
+    Each half fails independently - a dividends or earnings-calendar
     hiccup returns an empty/None result for that half rather than
     failing the whole call.
 

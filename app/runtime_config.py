@@ -1,6 +1,6 @@
 """Runtime-adjustable alert thresholds, backed by a singleton `RuntimeConfig`
 row rather than the static env-var `Settings`. Once seeded (in `main.py`'s
-lifespan), the DB row is the permanent source of truth — a later env var
+lifespan), the DB row is the permanent source of truth - a later env var
 change has no further effect. See `app/config.py`'s module docstring.
 """
 
@@ -17,7 +17,7 @@ SINGLETON_ID = 1
 
 @dataclass
 class RuntimeConfigValues:
-    """A detached snapshot, not the ORM row — SessionLocal sessions here are
+    """A detached snapshot, not the ORM row - SessionLocal sessions here are
     short-lived and closed in `finally` blocks, so returning the live ORM
     object would risk an expire_on_commit refresh against an already-closed
     session wherever the value gets used after the fetching session ends.
@@ -73,7 +73,7 @@ def get_runtime_config(db: Session) -> RuntimeConfigValues:
 
     # Normally seeded once in main.py's lifespan before any request is
     # accepted, so this "insert if missing" branch is a defensive fallback
-    # (e.g. someone manually deleted the row), not the primary mechanism —
+    # (e.g. someone manually deleted the row), not the primary mechanism -
     # the IntegrityError catch guards the narrow remaining race where two
     # requests both hit this branch concurrently.
     row = RuntimeConfig(

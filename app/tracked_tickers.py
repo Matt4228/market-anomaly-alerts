@@ -1,5 +1,5 @@
 """The editable set of tracked tickers, backed by the `TrackedTicker` table
-— same DB-overrides-env-var-after-first-seed pattern as `runtime_config.py`.
+- same DB-overrides-env-var-after-first-seed pattern as `runtime_config.py`.
 Bounded to `MIN_TICKERS`-`MAX_TICKERS` since the dashboard editor and the
 detection pipeline are both sized around a small, always-fully-baselined
 ticker set.
@@ -34,7 +34,7 @@ def get_tracked_tickers(db: Session) -> list[str]:
         return list(rows)
 
     # Normally seeded once in main.py's lifespan before any request is
-    # accepted (same reasoning as RuntimeConfig's seeding) — this branch is
+    # accepted (same reasoning as RuntimeConfig's seeding) - this branch is
     # a defensive fallback, not the primary mechanism.
     for ticker in settings.tickers:
         db.add(TrackedTicker(ticker=ticker))

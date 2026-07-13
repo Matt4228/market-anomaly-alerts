@@ -3,7 +3,7 @@
 Two tables are append-only logs (`PriceHistory`, `Alert`); the rest hold
 current/mutable state (`TickerBaseline` per ticker, and the two
 singleton-or-set tables `RuntimeConfig`/`TrackedTicker` that back the
-runtime-adjustable settings — see their own docstrings for why).
+runtime-adjustable settings - see their own docstrings for why).
 """
 
 from datetime import datetime, timezone
@@ -174,7 +174,7 @@ class Alert(Base):
     message: Mapped[str] = mapped_column(String(256))
     # JSON-serialized snapshot of the signals/baseline stats that were true
     # AT TRIGGER TIME (captured where the alert already fires in
-    # scheduler.py) — lets the alert detail view show what actually
+    # scheduler.py) - lets the alert detail view show what actually
     # happened, not today's baseline mislabeled as historical.
     context: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -182,7 +182,7 @@ class Alert(Base):
 class RuntimeConfig(Base):
     """Singleton row (id=1) holding the alert thresholds that used to be
     static env-var-only settings. Once this row exists it's the permanent
-    source of truth — a later env var change has no effect, since the DB
+    source of truth - a later env var change has no effect, since the DB
     row wins. That's intentional (lets thresholds be adjusted live from the
     dashboard without a redeploy), but worth knowing if a threshold ever
     looks like it "isn't taking effect" after an env/deploy change."""
@@ -197,7 +197,7 @@ class RuntimeConfig(Base):
 
 
 class TrackedTicker(Base):
-    """The editable set of tickers being polled — same "DB overrides the
+    """The editable set of tickers being polled - same "DB overrides the
     original env var once seeded" pattern as RuntimeConfig. Kept to a
     dedicated table (rather than a column on RuntimeConfig) since it's a
     list, not a scalar."""

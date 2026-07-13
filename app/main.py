@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
 
     # Seeds the RuntimeConfig singleton row once, before any request is
-    # accepted — this is what makes the "two concurrent requests both find
+    # accepted - this is what makes the "two concurrent requests both find
     # it missing" race in get_runtime_config a non-issue in practice.
     db = SessionLocal()
     try:
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Market Anomaly Alerts", lifespan=lifespan)
 
 STATIC_DIR = Path(__file__).parent / "static"
-# Only needed for standalone assets like the favicon — index.html itself is
+# Only needed for standalone assets like the favicon - index.html itself is
 # still served through the dashboard() route below (not this mount), since
 # that's where the debug-token placeholder gets substituted at request time.
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -93,7 +93,7 @@ def list_tickers(db: Session = Depends(get_session)):
 @app.post("/tickers/{ticker}")
 async def add_ticker(ticker: str, x_debug_token: str | None = Header(default=None), db: Session = Depends(get_session)):
     """Adds a ticker to the tracked set (max 5). Validates that we can
-    actually fetch live data for it BEFORE persisting — the same
+    actually fetch live data for it BEFORE persisting - the same
     fetch_latest_price() call the real poller uses, so "valid" means
     "our actual ingestion pipeline works for this symbol", not just
     "looks like a ticker format"."""
@@ -103,7 +103,7 @@ async def add_ticker(ticker: str, x_debug_token: str | None = Header(default=Non
     try:
         await fetch_latest_price(ticker)
     except Exception:
-        raise HTTPException(status_code=400, detail=f"couldn't fetch data for {ticker} — check the symbol is valid")
+        raise HTTPException(status_code=400, detail=f"couldn't fetch data for {ticker} - check the symbol is valid")
     try:
         tickers = add_tracked_ticker(db, ticker)
     except ValueError as e:
@@ -165,7 +165,7 @@ def get_alert(alert_id: int, db: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="alert not found")
 
     # A small window of price_history around the trigger time, for a
-    # context chart — the same table every real poll already writes to.
+    # context chart - the same table every real poll already writes to.
     window = timedelta(minutes=30)
     nearby = (
         db.query(PriceHistory)
@@ -203,7 +203,7 @@ def get_baseline(ticker: str, db: Session = Depends(get_session)):
         return {"ticker": ticker.upper(), "sample_count": 0}
 
     # Lets the dashboard backfill price/volume/spread/z-score on page load
-    # instead of showing blanks until the next WebSocket broadcast — all of
+    # instead of showing blanks until the next WebSocket broadcast - all of
     # this is already sitting in the baseline row, just wasn't exposed here.
     zscores = current_zscores(baseline)
     config = get_runtime_config(db)
@@ -243,7 +243,7 @@ def post_config(
     x_debug_token: str | None = Header(default=None),
     db: Session = Depends(get_session),
 ):
-    """Runtime-adjustable alert thresholds — the only mutating endpoint
+    """Runtime-adjustable alert thresholds - the only mutating endpoint
     besides /debug/test-alert that changes production alerting behavior,
     so it gets the same auth. Once written, these values are the permanent
     source of truth; a later env var change has no effect (see
@@ -301,11 +301,11 @@ TEST_ALERT_KINDS = ("price", "volume", "spread", "volatility")
 
 @app.post("/debug/test-alert/{ticker}")
 async def test_alert(ticker: str, kind: str = "price", x_debug_token: str | None = Header(default=None)):
-    """Demo/testing only — fires a real alert through the same storage,
+    """Demo/testing only - fires a real alert through the same storage,
     broadcast, and Slack code path as a genuine detection, using a
     synthetic value instead of waiting on real market volatility.
     kind: "price" (default), "volume", "spread", or "volatility".
-    ("stale" isn't synthesizable as a single value — it's a multi-poll
+    ("stale" isn't synthesizable as a single value - it's a multi-poll
     state, exercised only by the real poll cycle.)
 
     Requires X-Debug-Token to match DEBUG_TOKEN. Fails closed: if

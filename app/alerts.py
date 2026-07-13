@@ -18,7 +18,7 @@ class AlertManager:
     """Per-ticker cooldown + fan-out to websocket clients and Slack.
 
     Cooldown exists so a ticker that stays anomalous for many consecutive
-    polls doesn't produce an alert every cycle — one alert, then silence
+    polls doesn't produce an alert every cycle - one alert, then silence
     until the cooldown window passes or the anomaly clears.
     """
 
@@ -33,7 +33,7 @@ class AlertManager:
         Parameters
         ----------
         ticker : str
-            Cooldown key — a plain ticker for signal alerts, or
+            Cooldown key - a plain ticker for signal alerts, or
             `f"{ticker}:reconciliation"` for reconciliation mismatches, so
             the two alert types never suppress each other.
         cooldown_minutes : int
@@ -105,7 +105,7 @@ class AlertManager:
         # Slack is a best-effort side channel: the DB row and WebSocket
         # broadcast have already succeeded by the time this runs, so a
         # Slack outage or misconfigured webhook should never take down
-        # the alert pipeline — log it and move on instead of raising.
+        # the alert pipeline - log it and move on instead of raising.
         payload = {
             "blocks": [
                 {

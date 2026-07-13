@@ -1,7 +1,7 @@
 """SQLAlchemy engine/session setup.
 
 `SessionLocal` sessions are short-lived by convention throughout this
-codebase — opened, used, and closed within a single function rather than
+codebase - opened, used, and closed within a single function rather than
 held across await points. Functions that return values derived from a
 session (e.g. `runtime_config.get_runtime_config`) return plain
 dataclasses, not ORM objects, so callers never touch an object whose
