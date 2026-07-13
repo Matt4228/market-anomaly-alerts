@@ -1,3 +1,9 @@
+"""On-demand historical price and fundamentals lookups for the ticker
+detail modal — mirrors app/ingestion.py's blocking-call/to_thread/shared
+rate-limiter pattern, but for one-off lookups rather than the live poll.
+Nothing here is persisted.
+"""
+
 import asyncio
 import logging
 from datetime import date, timedelta
@@ -21,6 +27,19 @@ RANGE_CONFIG: dict[str, tuple[int, str]] = {
 
 
 def _fetch_history_blocking(ticker: str, range_key: str) -> list[dict]:
+    """Blocking OpenBB historical-price call.
+
+    Parameters
+    ----------
+    ticker : str
+    range_key : str
+        A key of `RANGE_CONFIG`, e.g. `"1D"`, `"1M"`.
+
+    Returns
+    -------
+    list of dict
+        `[{"date", "close"}, ...]` in chronological order.
+    """
     days_back, interval = RANGE_CONFIG[range_key]
     result = obb.equity.price.historical(
         symbol=ticker,
@@ -33,11 +52,39 @@ def _fetch_history_blocking(ticker: str, range_key: str) -> list[dict]:
 
 
 async def fetch_history(ticker: str, range_key: str) -> list[dict]:
+    """Rate-limited fetch of historical close prices for one range.
+
+    Parameters
+    ----------
+    ticker : str
+    range_key : str
+        A key of `RANGE_CONFIG`.
+
+    Returns
+    -------
+    list of dict
+        Same shape as `_fetch_history_blocking`.
+    """
     await limiter.acquire()
     return await asyncio.to_thread(_fetch_history_blocking, ticker, range_key)
 
 
 def _fetch_fundamentals_blocking(ticker: str) -> dict:
+    """Blocking dividends (OpenBB) + next-earnings (yfinance) lookup.
+    Each half fails independently — a dividends or earnings-calendar
+    hiccup returns an empty/None result for that half rather than
+    failing the whole call.
+
+    Parameters
+    ----------
+    ticker : str
+
+    Returns
+    -------
+    dict
+        `{"dividends": [{"ex_date", "amount"}, ...],
+        "earnings": {"next_date", "eps_estimate"}}`.
+    """
     dividends: list[dict] = []
     try:
         div_df = obb.equity.fundamental.dividends(symbol=ticker, provider=settings.openbb_provider).to_df()
@@ -60,5 +107,16 @@ def _fetch_fundamentals_blocking(ticker: str) -> dict:
 
 
 async def fetch_fundamentals(ticker: str) -> dict:
+    """Rate-limited fetch of dividends + next-earnings info.
+
+    Parameters
+    ----------
+    ticker : str
+
+    Returns
+    -------
+    dict
+        Same shape as `_fetch_fundamentals_blocking`.
+    """
     await limiter.acquire()
     return await asyncio.to_thread(_fetch_fundamentals_blocking, ticker)

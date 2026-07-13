@@ -1,3 +1,10 @@
+"""Anomaly detection: Welford's incremental algorithm applied to four
+independent per-ticker series (price, volume, spread, tick-to-tick delta),
+plus a separate stale/halted-quote check. See `check_anomaly` for the
+live detection path and `synthetic_anomalous_sample` for the read-only
+path used by the manual test-trigger endpoint.
+"""
+
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
@@ -8,25 +15,75 @@ from app.models import TickerBaseline
 
 @dataclass
 class AnomalyResult:
+    """Outcome of a single `check_anomaly` (or synthetic-test) call.
+
+    Attributes
+    ----------
+    is_anomaly : bool
+    z_score : float
+        Max z-score across triggered signals (0.0 if stale-only).
+    kind : str
+        "+"-joined triggered signal names, "stale", or "none".
+    signals : dict of str to float
+        Every computed z-score, not just the triggered ones.
+    stale : bool
+    stale_count : int
+    baseline_snapshot : dict
+        Mean/stddev per series at this point, for alert context capture.
+    """
+
     is_anomaly: bool
-    z_score: float  # max across triggered numeric signals (0.0 if stale-only)
-    kind: str  # "+"-joined triggered signal names, "stale", or "none"
-    signals: dict[str, float] = field(default_factory=dict)  # all computed z-scores
+    z_score: float
+    kind: str
+    signals: dict[str, float] = field(default_factory=dict)
     stale: bool = False
     stale_count: int = 0
-    baseline_snapshot: dict = field(default_factory=dict)  # mean/stddev per series AT this point, for alert context
+    baseline_snapshot: dict = field(default_factory=dict)
 
 
 def _effective_stddev(stddev: float, scale: float) -> float:
-    # Floor stddev relative to the metric's own scale. Without this, a
-    # baseline with near-zero real variance (e.g. a data-quality issue, or
-    # a market that's been closed) turns any ordinary tick into a z-score
-    # in the millions/billions — dividing a real delta by a near-zero
-    # denominator, not a genuine anomaly.
+    """Floor a baseline stddev relative to the metric's own scale.
+
+    Without this, a baseline with near-zero real variance (e.g. a
+    data-quality issue, or a market that's been closed) turns any
+    ordinary tick into a z-score in the millions/billions — dividing a
+    real delta by a near-zero denominator, not a genuine anomaly.
+
+    Parameters
+    ----------
+    stddev : float
+        The baseline's actual sample standard deviation.
+    scale : float
+        Reference magnitude (typically the current price) the floor is
+        computed relative to.
+
+    Returns
+    -------
+    float
+        `max(stddev, scale * settings.min_stddev_fraction)`.
+    """
     return max(stddev, scale * settings.min_stddev_fraction)
 
 
 def _welford_update(mean: float, variance_sum: float, count: int, value: float) -> tuple[float, float]:
+    """One step of Welford's online mean/variance algorithm.
+
+    Parameters
+    ----------
+    mean : float
+        Running mean before this update.
+    variance_sum : float
+        Running sum of squared differences from the mean (M2).
+    count : int
+        Sample count *after* including `value`.
+    value : float
+        The new observation.
+
+    Returns
+    -------
+    tuple of (float, float)
+        Updated (mean, variance_sum).
+    """
     delta = value - mean
     new_mean = mean + delta / count
     delta2 = value - new_mean
@@ -44,18 +101,37 @@ def check_anomaly(
     zscore_threshold: float,
     stale_threshold: int,
 ) -> AnomalyResult:
-    """Compares price, volume, bid/ask spread, and tick-to-tick change
-    magnitude against the baseline BEFORE folding them in, then updates all
-    four via Welford's algorithm. Checking first matters: scoring against a
-    baseline that already includes the current point would dampen the very
-    deviation we're trying to detect.
+    """Compare a new tick against the ticker's baseline, then update it.
+
+    Compares price, volume, bid/ask spread, and tick-to-tick change
+    magnitude against the baseline BEFORE folding them in, then updates
+    all four via Welford's algorithm. Checking first matters: scoring
+    against a baseline that already includes the current point would
+    dampen the very deviation we're trying to detect.
 
     All four series share one sample_count, since they're always observed
     together (one poll = one price + volume + bid + ask reading).
 
-    zscore_threshold/stale_threshold are passed in (from RuntimeConfig, via
-    the caller) rather than read from settings directly, so they can be
-    adjusted live from the dashboard without a restart.
+    Parameters
+    ----------
+    db : sqlalchemy.orm.Session
+    ticker : str
+    price : float
+    volume : float
+    bid : float
+    ask : float
+    zscore_threshold : float
+        Threshold above which a signal counts as anomalous. Passed in
+        (from RuntimeConfig, via the caller) rather than read from
+        settings directly, so it can be adjusted live from the dashboard
+        without a restart.
+    stale_threshold : int
+        Consecutive unchanged-tick count above which the ticker is
+        flagged as stale/halted.
+
+    Returns
+    -------
+    AnomalyResult
     """
     spread = ask - bid
     baseline = db.get(TickerBaseline, ticker)
@@ -139,17 +215,28 @@ def check_anomaly(
 
 
 def current_zscores(baseline: TickerBaseline) -> dict[str, float]:
-    """Read-only: recomputes price/volume/spread z-scores from the
-    baseline's already-persisted last_price/last_volume/last_spread against
-    its current mean/stddev — for showing "how anomalous does the most
-    recent tick look" on page load, before the next real poll's WebSocket
-    broadcast would otherwise be the only source of this.
+    """Recompute price/volume/spread z-scores from the baseline's own
+    last-known values, without touching the database.
 
-    Slightly different from the z-score computed live in check_anomaly:
-    that one compares an incoming point against the baseline BEFORE folding
-    it in, whereas this compares the baseline's last point against its own
-    current (already-updated) stats — a small self-referential difference
-    that doesn't matter for a display/backfill purpose like this one.
+    For showing "how anomalous does the most recent tick look" on page
+    load, before the next real poll's WebSocket broadcast would
+    otherwise be the only source of this.
+
+    Slightly different from the z-score computed live in `check_anomaly`:
+    that one compares an incoming point against the baseline BEFORE
+    folding it in, whereas this compares the baseline's last point
+    against its own current (already-updated) stats — a small
+    self-referential difference that doesn't matter for a display/
+    backfill purpose like this one.
+
+    Parameters
+    ----------
+    baseline : TickerBaseline
+
+    Returns
+    -------
+    dict of str to float
+        Empty dict if there isn't enough baseline data yet.
     """
     if baseline.sample_count < 2 or baseline.last_price is None:
         return {}
@@ -163,19 +250,32 @@ def current_zscores(baseline: TickerBaseline) -> dict[str, float]:
 
 
 def synthetic_anomalous_sample(db: Session, ticker: str, zscore_threshold: float, kind: str = "price") -> dict:
-    """Read-only: computes a value that would cross the anomaly threshold
-    for the given signal against the ticker's CURRENT baseline, without
-    mutating it.
+    """Compute a value that would cross the anomaly threshold for a given
+    signal, against the ticker's current baseline, without mutating it.
 
     Used by the manual test-trigger endpoint so a demo alert doesn't
     permanently skew real baseline stats with a synthetic data point —
-    unlike check_anomaly, this never writes to ticker_baseline. "stale" is
-    a multi-poll state rather than a single synthetic value, so it isn't
-    supported here — it's exercised by the real poll cycle only.
+    unlike `check_anomaly`, this never writes to `ticker_baseline`.
+    "stale" is a multi-poll state rather than a single synthetic value,
+    so it isn't supported here — it's exercised by the real poll cycle
+    only.
 
-    Returns {"error": ..., "sample_count": ...} instead of a usable sample
-    when there isn't enough baseline data yet, so callers can report real
-    progress ("3/6 samples so far") instead of a flat "no baseline" message.
+    Parameters
+    ----------
+    db : sqlalchemy.orm.Session
+    ticker : str
+    zscore_threshold : float
+        The synthetic value is sized to land one std dev past this.
+    kind : {"price", "volume", "spread", "volatility"}, optional
+        Which signal to synthesize, by default "price".
+
+    Returns
+    -------
+    dict
+        `{"kind", "value", "z_score"}` on success, or
+        `{"error", "sample_count"}` if there isn't enough baseline data
+        yet — callers use this to report real progress ("3/6 samples so
+        far") instead of a flat "no baseline" message.
     """
     baseline = db.get(TickerBaseline, ticker)
     if baseline is None:

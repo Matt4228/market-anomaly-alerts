@@ -1,3 +1,11 @@
+"""SQLAlchemy ORM models.
+
+Two tables are append-only logs (`PriceHistory`, `Alert`); the rest hold
+current/mutable state (`TickerBaseline` per ticker, and the two
+singleton-or-set tables `RuntimeConfig`/`TrackedTicker` that back the
+runtime-adjustable settings — see their own docstrings for why).
+"""
+
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Float, Integer, String, Text
@@ -7,10 +15,29 @@ from app.db import Base
 
 
 def utcnow() -> datetime:
+    """Return the current time as a timezone-aware UTC datetime.
+
+    Returns
+    -------
+    datetime.datetime
+        Current UTC time.
+    """
     return datetime.now(timezone.utc)
 
 
 class PriceHistory(Base):
+    """Append-only log of every raw price/volume tick fetched.
+
+    Attributes
+    ----------
+    ticker : str
+    timestamp : datetime.datetime
+    price : float
+    volume : float or None
+    source : str
+        Provider name the tick came from.
+    """
+
     __tablename__ = "price_history"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -24,7 +51,29 @@ class PriceHistory(Base):
 class TickerBaseline(Base):
     """Running mean/stddev per ticker (Welford's algorithm), so anomaly
     checks compare against an incrementally updated baseline instead of
-    rescanning full price history on every poll."""
+    rescanning full price history on every poll.
+
+    Four independent series share one `sample_count`, since they're
+    always observed together: price, volume, bid/ask spread, and
+    tick-to-tick delta magnitude (the volatility-clustering proxy).
+
+    Attributes
+    ----------
+    ticker : str
+    mean, variance_sum : float
+        Running price mean and M2 (Welford's algorithm).
+    volume_mean, volume_variance_sum : float
+    spread_mean, spread_variance_sum : float
+    delta_mean, delta_variance_sum : float
+        Baseline of `abs(price - previous_price)` per poll.
+    last_price, last_volume, last_spread : float or None
+        Most recent observed values, used for display backfill and as
+        the "previous" reference for the next delta calculation.
+    stale_count : int
+        Consecutive polls with unchanged price and zero volume.
+    sample_count : int
+    updated_at : datetime.datetime
+    """
 
     __tablename__ = "ticker_baseline"
 
@@ -50,30 +99,71 @@ class TickerBaseline(Base):
 
     @property
     def stddev(self) -> float:
+        """Sample standard deviation of price, derived from `variance_sum`.
+
+        Returns
+        -------
+        float
+            0.0 if fewer than 2 samples have been recorded.
+        """
         if self.sample_count < 2:
             return 0.0
         return (self.variance_sum / (self.sample_count - 1)) ** 0.5
 
     @property
     def volume_stddev(self) -> float:
+        """Sample standard deviation of volume.
+
+        Returns
+        -------
+        float
+        """
         if self.sample_count < 2:
             return 0.0
         return (self.volume_variance_sum / (self.sample_count - 1)) ** 0.5
 
     @property
     def spread_stddev(self) -> float:
+        """Sample standard deviation of bid/ask spread.
+
+        Returns
+        -------
+        float
+        """
         if self.sample_count < 2:
             return 0.0
         return (self.spread_variance_sum / (self.sample_count - 1)) ** 0.5
 
     @property
     def delta_stddev(self) -> float:
+        """Sample standard deviation of tick-to-tick delta magnitude.
+
+        Returns
+        -------
+        float
+        """
         if self.sample_count < 2:
             return 0.0
         return (self.delta_variance_sum / (self.sample_count - 1)) ** 0.5
 
 
 class Alert(Base):
+    """A fired alert, real or test-triggered.
+
+    Attributes
+    ----------
+    ticker : str
+    triggered_at : datetime.datetime
+    price : float
+        The price at trigger time (0.0 for non-price signal types).
+    z_score : float
+        The triggering signal's z-score, or reconciliation % diff * 100.
+    message : str
+        Human-readable summary shown in the dashboard alert feed.
+    context : str or None
+        JSON-serialized snapshot of signals/baseline at trigger time.
+    """
+
     __tablename__ = "alerts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

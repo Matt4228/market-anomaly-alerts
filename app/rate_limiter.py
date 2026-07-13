@@ -1,3 +1,7 @@
+"""Shared rate limiting for outbound calls to OpenBB/yfinance: a token
+bucket to pace requests, and a backoff helper to retry failures politely.
+"""
+
 import asyncio
 import random
 import time
@@ -12,6 +16,13 @@ class TokenBucketLimiter:
     Sized below the provider's documented cap on purpose: several tickers
     can be polled in the same cycle, and this bucket is what serializes
     them instead of firing all requests at once and tripping a 429.
+
+    Parameters
+    ----------
+    capacity : int
+        Maximum number of tokens (i.e. burst size) the bucket can hold.
+    refill_per_sec : float
+        Tokens added back per second.
     """
 
     def __init__(self, capacity: int, refill_per_sec: float):
@@ -22,6 +33,12 @@ class TokenBucketLimiter:
         self._lock = asyncio.Lock()
 
     async def acquire(self) -> None:
+        """Block until a token is available, then consume it.
+
+        Returns
+        -------
+        None
+        """
         async with self._lock:
             while True:
                 now = time.monotonic()
@@ -43,11 +60,30 @@ async def with_backoff(
     max_attempts: int = 5,
     base_delay: float = 1.0,
 ) -> T:
-    """Retries fn with exponential backoff + jitter.
+    """Retry `fn` with exponential backoff and jitter.
 
     Jitter matters here specifically because every ticker in a poll cycle
-    could hit a limit at once — without jitter they'd all retry in lockstep
-    and re-trigger the same limit on the next attempt.
+    could hit a limit at once — without jitter they'd all retry in
+    lockstep and re-trigger the same limit on the next attempt.
+
+    Parameters
+    ----------
+    fn : Callable[[], Awaitable[T]]
+        Zero-argument async callable to retry on failure.
+    max_attempts : int, optional
+        Maximum number of attempts before giving up, by default 5.
+    base_delay : float, optional
+        Base delay in seconds for the exponential backoff, by default 1.0.
+
+    Returns
+    -------
+    T
+        Whatever `fn` returns on success.
+
+    Raises
+    ------
+    Exception
+        Re-raises the last exception if all attempts fail.
     """
     last_exc: Exception | None = None
     for attempt in range(max_attempts):

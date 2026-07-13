@@ -1,7 +1,48 @@
+"""Static, env-var-sourced configuration.
+
+Note the split in responsibility: alert thresholds defined here
+(`anomaly_zscore_threshold`, `stale_threshold`, `alert_cooldown_minutes`,
+`reconciliation_tolerance`) and the tracked ticker list (`tracked_tickers`)
+are only used as *seed defaults* — see `runtime_config.py` and
+`tracked_tickers.py`, which move the live values into Postgres so they're
+adjustable from the dashboard without a redeploy. Everything else here
+(DB connection, provider, rate limits, Slack, debug token) stays
+env-var-only.
+"""
+
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    """Application settings, loaded once from environment variables/.env.
+
+    Attributes
+    ----------
+    database_url : str
+        Postgres connection string.
+    tracked_tickers : str
+        Comma-separated seed list of tickers (see module docstring).
+    openbb_provider : str
+        Provider name passed to OpenBB calls.
+    poll_interval_minutes : int
+        How often the background poll cycle runs.
+    anomaly_zscore_threshold, stale_threshold, alert_cooldown_minutes,
+    reconciliation_tolerance
+        Seed defaults for the runtime-adjustable alert thresholds.
+    min_stddev_fraction : float
+        Floor applied to baseline stddev (relative to the metric's scale)
+        so near-zero variance can't produce a meaningless huge z-score.
+    rate_limit_capacity, rate_limit_refill_per_sec : int, float
+        Token bucket sizing for outbound provider calls.
+    price_cache_ttl_seconds : int
+        TTL for the short-lived price cache.
+    slack_webhook_url : str or None
+        Optional Slack incoming webhook URL.
+    debug_token : str or None
+        Shared secret required by mutating debug/admin endpoints. Fails
+        closed if unset (see README).
+    """
+
     database_url: str = "postgresql://postgres:postgres@localhost:5432/market_alerts"
 
     tracked_tickers: str = "AAPL,MSFT,GOOGL,TSLA,SPY"
@@ -33,6 +74,14 @@ class Settings(BaseSettings):
 
     @property
     def tickers(self) -> list[str]:
+        """Parsed, upper-cased seed ticker list.
+
+        Returns
+        -------
+        list of str
+            Ticker symbols from `tracked_tickers`. Only used to seed
+            `tracked_ticker` on first startup — see `tracked_tickers.py`.
+        """
         return [t.strip().upper() for t in self.tracked_tickers.split(",") if t.strip()]
 
 

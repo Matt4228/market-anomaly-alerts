@@ -1,3 +1,8 @@
+"""FastAPI app: routes, WebSocket endpoint, and the lifespan hook that
+creates tables, seeds the runtime-config/tracked-ticker singletons, and
+starts the APScheduler poll job.
+"""
+
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -26,6 +31,10 @@ scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Startup: create tables, seed the RuntimeConfig/TrackedTicker
+    singletons, and start the poll scheduler. Shutdown: stop the
+    scheduler.
+    """
     Base.metadata.create_all(bind=engine)
 
     # Seeds the RuntimeConfig singleton row once, before any request is
@@ -55,6 +64,12 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/")
 def dashboard():
+    """Serve the dashboard HTML with the debug token substituted in.
+
+    Returns
+    -------
+    fastapi.responses.HTMLResponse
+    """
     # Rendered, not served as a static file: the debug token placeholder is
     # substituted from settings at request time, so the real secret only
     # ever lives in the environment, never in the committed HTML/git repo.
@@ -65,6 +80,13 @@ def dashboard():
 
 @app.get("/tickers")
 def list_tickers(db: Session = Depends(get_session)):
+    """Return the current tracked-ticker list and poll interval.
+
+    Returns
+    -------
+    dict
+        `{"tickers", "poll_interval_minutes"}`.
+    """
     return {"tickers": get_tracked_tickers(db), "poll_interval_minutes": settings.poll_interval_minutes}
 
 
@@ -91,6 +113,7 @@ async def add_ticker(ticker: str, x_debug_token: str | None = Header(default=Non
 
 @app.delete("/tickers/{ticker}")
 def remove_ticker(ticker: str, x_debug_token: str | None = Header(default=None), db: Session = Depends(get_session)):
+    """Remove a ticker from the tracked set (min 1 remaining)."""
     if not settings.debug_token or x_debug_token != settings.debug_token:
         raise HTTPException(status_code=403, detail="forbidden")
     try:
@@ -102,6 +125,12 @@ def remove_ticker(ticker: str, x_debug_token: str | None = Header(default=None),
 
 @app.get("/alerts")
 def list_alerts(limit: int = 50, db: Session = Depends(get_session)):
+    """Return the most recent alerts, newest first.
+
+    Returns
+    -------
+    list of dict
+    """
     rows = db.query(Alert).order_by(desc(Alert.triggered_at)).limit(limit).all()
     return [
         {
@@ -118,6 +147,19 @@ def list_alerts(limit: int = 50, db: Session = Depends(get_session)):
 
 @app.get("/alerts/{alert_id}")
 def get_alert(alert_id: int, db: Session = Depends(get_session)):
+    """Return one alert's full detail, including its parsed context
+    snapshot and a +/-30 minute window of surrounding price history for
+    the alert detail modal's context chart.
+
+    Returns
+    -------
+    dict
+
+    Raises
+    ------
+    fastapi.HTTPException
+        404 if `alert_id` doesn't exist.
+    """
     a = db.get(Alert, alert_id)
     if a is None:
         raise HTTPException(status_code=404, detail="alert not found")
@@ -150,6 +192,12 @@ def get_alert(alert_id: int, db: Session = Depends(get_session)):
 
 @app.get("/tickers/{ticker}/baseline")
 def get_baseline(ticker: str, db: Session = Depends(get_session)):
+    """Return a ticker's current baseline stats, backfilled for page load.
+
+    Returns
+    -------
+    dict
+    """
     baseline = db.get(TickerBaseline, ticker.upper())
     if baseline is None:
         return {"ticker": ticker.upper(), "sample_count": 0}
@@ -176,6 +224,7 @@ def get_baseline(ticker: str, db: Session = Depends(get_session)):
 
 @app.get("/config")
 def get_config(db: Session = Depends(get_session)):
+    """Return the current runtime-adjustable alert thresholds."""
     config = get_runtime_config(db)
     return {
         "anomaly_zscore_threshold": config.anomaly_zscore_threshold,
@@ -221,6 +270,19 @@ def post_config(
 
 @app.get("/tickers/{ticker}/history")
 async def ticker_history(ticker: str, range: str = "1M"):
+    """Return historical close prices for the ticker detail modal chart.
+
+    Parameters
+    ----------
+    ticker : str
+    range : str, optional
+        A key of `RANGE_CONFIG` (e.g. "1D", "1M"), by default "1M".
+
+    Raises
+    ------
+    fastapi.HTTPException
+        400 if `range` isn't a valid `RANGE_CONFIG` key.
+    """
     if range not in RANGE_CONFIG:
         raise HTTPException(status_code=400, detail=f"range must be one of {list(RANGE_CONFIG)}")
     points = await fetch_history(ticker.upper(), range)
@@ -229,6 +291,8 @@ async def ticker_history(ticker: str, range: str = "1M"):
 
 @app.get("/tickers/{ticker}/fundamentals")
 async def ticker_fundamentals(ticker: str):
+    """Return recent dividends and next-earnings info for the ticker
+    detail modal."""
     return await fetch_fundamentals(ticker.upper())
 
 
@@ -259,6 +323,8 @@ async def test_alert(ticker: str, kind: str = "price", x_debug_token: str | None
 
 @app.websocket("/ws/alerts")
 async def ws_alerts(websocket: WebSocket):
+    """Dashboard WebSocket: receives price_update/alert broadcasts,
+    doesn't expect any inbound messages from the client."""
     await alert_manager.connect(websocket)
     try:
         while True:

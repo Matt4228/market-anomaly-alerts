@@ -1,3 +1,7 @@
+"""Alert fan-out: per-ticker cooldown bookkeeping, WebSocket broadcast to
+connected dashboard clients, and best-effort Slack notification.
+"""
+
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -23,22 +27,62 @@ class AlertManager:
         self._connections: set[WebSocket] = set()
 
     def should_alert(self, ticker: str, cooldown_minutes: int) -> bool:
+        """Check whether enough time has passed since the last alert for
+        this cooldown key to allow another one.
+
+        Parameters
+        ----------
+        ticker : str
+            Cooldown key — a plain ticker for signal alerts, or
+            `f"{ticker}:reconciliation"` for reconciliation mismatches, so
+            the two alert types never suppress each other.
+        cooldown_minutes : int
+
+        Returns
+        -------
+        bool
+        """
         last = self._last_alert_at.get(ticker)
         if last is None:
             return True
         return datetime.now(timezone.utc) - last >= timedelta(minutes=cooldown_minutes)
 
     def record_alert(self, ticker: str) -> None:
+        """Mark `ticker` as just-alerted, resetting its cooldown window.
+
+        Parameters
+        ----------
+        ticker : str
+        """
         self._last_alert_at[ticker] = datetime.now(timezone.utc)
 
     async def connect(self, ws: WebSocket) -> None:
+        """Accept and register a dashboard WebSocket connection.
+
+        Parameters
+        ----------
+        ws : fastapi.WebSocket
+        """
         await ws.accept()
         self._connections.add(ws)
 
     def disconnect(self, ws: WebSocket) -> None:
+        """Remove a WebSocket connection.
+
+        Parameters
+        ----------
+        ws : fastapi.WebSocket
+        """
         self._connections.discard(ws)
 
     async def broadcast(self, payload: dict) -> None:
+        """Send `payload` as JSON to every connected client, dropping any
+        connection that errors on send.
+
+        Parameters
+        ----------
+        payload : dict
+        """
         message = json.dumps(payload, default=str)
         dead = []
         for ws in self._connections:
@@ -50,6 +94,12 @@ class AlertManager:
             self._connections.discard(ws)
 
     async def notify_slack(self, text: str) -> None:
+        """Post `text` to the configured Slack webhook, if any.
+
+        Parameters
+        ----------
+        text : str
+        """
         if not settings.slack_webhook_url:
             return
         # Slack is a best-effort side channel: the DB row and WebSocket

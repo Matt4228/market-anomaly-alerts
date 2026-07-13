@@ -1,3 +1,8 @@
+"""Fetches live price/quote data for the poll cycle: a primary OpenBB
+quote (cached + rate-limited) and a secondary yfinance reading used only
+for reconciliation cross-checks.
+"""
+
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -40,6 +45,20 @@ def _fetch_price_blocking(ticker: str) -> dict:
     NOTE: OpenBB's Python interface has shifted across versions. Verify
     this against `obb.equity.price.quote.__doc__` / `obb.coverage` for
     whatever version ends up installed before relying on it.
+
+    Parameters
+    ----------
+    ticker : str
+
+    Returns
+    -------
+    dict
+        `{"ticker", "price", "bid", "ask", "volume", "timestamp", "source"}`.
+
+    Raises
+    ------
+    ValueError
+        If the provider returns no rows for `ticker`.
     """
     result = obb.equity.price.quote(symbol=ticker, provider=settings.openbb_provider)
     df = result.to_df()
@@ -65,6 +84,18 @@ def _fetch_price_blocking(ticker: str) -> dict:
 
 
 async def fetch_latest_price(ticker: str) -> dict:
+    """Rate-limited, cached, retrying fetch of the current quote for
+    `ticker`.
+
+    Parameters
+    ----------
+    ticker : str
+
+    Returns
+    -------
+    dict
+        Same shape as `_fetch_price_blocking`.
+    """
     cached = price_cache.get(ticker)
     if cached is not None:
         return cached
@@ -91,6 +122,14 @@ def _fetch_reconciliation_price_blocking(ticker: str) -> float:
     caching differences between them are real, and catching a large
     discrepancy is still a legitimate reconciliation check, the same
     pattern used to catch stale or wrong data from a single source.
+
+    Parameters
+    ----------
+    ticker : str
+
+    Returns
+    -------
+    float
     """
     info = yf.Ticker(ticker).fast_info
     return float(info.last_price)
@@ -99,7 +138,17 @@ def _fetch_reconciliation_price_blocking(ticker: str) -> float:
 async def fetch_reconciliation_price(ticker: str) -> float | None:
     """Best-effort: returns None on any failure rather than raising, since
     this is a supplementary cross-check, not the primary ingestion path —
-    a hiccup here should never affect the main price/anomaly pipeline."""
+    a hiccup here should never affect the main price/anomaly pipeline.
+
+    Parameters
+    ----------
+    ticker : str
+
+    Returns
+    -------
+    float or None
+        None on any fetch failure.
+    """
     try:
         await limiter.acquire()
         return await asyncio.to_thread(_fetch_reconciliation_price_blocking, ticker)

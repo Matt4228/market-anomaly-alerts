@@ -8,7 +8,7 @@ reading of the same ticker. Pushes alerts out over WebSocket and Slack, with a l
 dashboard to watch it happen. Clicking a ticker opens a detail view (price chart with
 selectable range, dividends, next earnings); clicking an alert opens the actual context
 that triggered it (signals, baseline stats at the time, a nearby price chart); alert
-thresholds are adjustable live from a settings panel, no redeploy required; and the tracked
+thresholds are adjustable live from a settings panel; and the tracked
 ticker set itself (1-5 tickers) is editable from the dashboard, with each addition validated
 against the real data pipeline before being accepted.
 Built as a practice project standing in for Bloomberg-style market data API experience,
@@ -16,7 +16,75 @@ with a deliberate focus on the mechanics that come up around any rate-limited ex
 API: throttling, backoff, caching, scalability, and cost tradeoffs.
 
 **Live**: https://market-anomaly-alerts-modonnell.azurewebsites.net (Azure App Service,
-Canada Central — see `AZURE_DEPLOY.md`, local/gitignored, for the deployment story).
+Canada Central).
+
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph Client["Browser"]
+        Dash["Dashboard (index.html)\nChart.js, WebSocket client"]
+    end
+
+    subgraph API["FastAPI app (app/main.py)"]
+        REST["REST endpoints\n/tickers /alerts /config\n/tickers/{t}/history,fundamentals,baseline"]
+        WS["WebSocket /ws/alerts"]
+    end
+
+    subgraph Background["APScheduler (in-process)"]
+        Poll["poll_cycle()\napp/scheduler.py"]
+    end
+
+    subgraph Ingestion["Data fetch"]
+        RL["TokenBucketLimiter + with_backoff\napp/rate_limiter.py"]
+        Cache["TTLCache\napp/cache.py"]
+        Ing["ingestion.py\nOpenBB quote (primary)"]
+        TInfo["ticker_info.py\nhistory + fundamentals (on demand)"]
+        Recon["fetch_reconciliation_price()\ndirect yfinance (secondary)"]
+    end
+
+    Detector["detector.py\nWelford baseline + z-score\nprice / volume / spread / volatility / stale"]
+
+    subgraph DB["Postgres (Supabase)"]
+        TB[("ticker_baseline")]
+        PH[("price_history")]
+        AL[("alerts")]
+        RC[("runtime_config")]
+        TT[("tracked_ticker")]
+    end
+
+    Alerts["alerts.py\nAlertManager: cooldown, broadcast, Slack"]
+    Slack[("Slack webhook")]
+
+    Dash <-->|HTTP| REST
+    Dash <-->|live ticks + alerts| WS
+    REST --> TInfo
+    REST --> DB
+
+    Poll --> Ing
+    Poll --> Recon
+    Ing --> RL
+    Ing --> Cache
+    Recon --> RL
+    TInfo --> RL
+
+    Poll --> Detector
+    Detector <--> TB
+    Poll --> PH
+    Detector -.reads.-> RC
+
+    Detector -->|AnomalyResult| Alerts
+    Alerts --> AL
+    Alerts --> WS
+    Alerts --> Slack
+
+    REST -.reads/writes.-> RC
+    REST -.reads/writes.-> TT
+    Poll -.reads.-> TT
+```
+
+Solid arrows are the live poll → detect → alert path; dashed arrows are the runtime-config
+reads/writes that let thresholds and the tracked-ticker set change without a redeploy.
 
 ## Design decisions
 
@@ -26,8 +94,7 @@ Canada Central — see `AZURE_DEPLOY.md`, local/gitignored, for the deployment s
   on data that hasn't changed.
 - **Throttling via a shared token bucket** (`app/rate_limiter.py`), sized below the
   provider's documented cap rather than at it, so a burst of tickers in one poll cycle
-  can't trip a 429. Backoff on failure is exponential with jitter — without jitter,
-  every queued ticker would retry in lockstep and re-trigger the same limit.
+  can't trip a 429. Backoff on failure is exponential with jitter.
 - **Short-TTL caching** (`app/cache.py`), on the order of seconds. Anomaly detection
   needs fresh data, so this isn't "cache aggressively" — it just collapses duplicate
   fetches for the same ticker within one cycle.
@@ -37,13 +104,13 @@ Canada Central — see `AZURE_DEPLOY.md`, local/gitignored, for the deployment s
 - **Debounced alerts.** A per-ticker cooldown (default 30 min) means a ticker that stays
   anomalous for many consecutive polls fires one alert, not one per cycle.
 - **In-process WebSocket broadcast for the MVP.** `AlertManager` holds connections in a
-  set on a single process. That's a known limit: scaling to multiple instances would
-  mean moving broadcast to Redis pub/sub (or similar) so alerts fan out across
+  set on a single process. That's a known limit imposed by free tier: scaling to multiple
+  instances would mean moving broadcast to Redis pub/sub (or similar) so alerts fan out across
   processes instead of only to clients connected to whichever instance polled the hit.
   Naming this limitation is deliberate — it's the honest answer to "how would this
   scale."
-- **Rule-based detection (z-score), not ML.** Keeps the MVP explainable. Swapping in a
-  model later is a natural extension, not a redesign.
+- **Rule-based detection (z-score).** Keeps the MVP explainable. Swapping in a
+  model later is a natural extension.
 - **Five signals tracked as independent series, one shared sample count** (price, volume,
   bid/ask spread, tick-to-tick delta magnitude, and a stale-quote counter). A ticker can be
   flagged for any combination — surfaced separately in the alert message (e.g.
@@ -60,7 +127,7 @@ Canada Central — see `AZURE_DEPLOY.md`, local/gitignored, for the deployment s
 - **Price reconciliation as a separate check, not another baseline signal.** Cross-checks
   the primary OpenBB quote against a second reading fetched directly via `yfinance`
   (bypassing OpenBB's wrapper). Worth being honest about what this proves: both
-  ultimately trace back to Yahoo Finance, so it's not two unrelated vendors — but it's a
+  ultimately trace back to Yahoo Finance, so it's nreot two unrelated vendors — but it's a
   genuinely different code path/endpoint, and a large discrepancy is still a legitimate
   signal (stale cache, a bad read, a provider-side data issue). Uses its own cooldown key
   (`{ticker}:reconciliation`) so it never competes with or gets suppressed by a
@@ -149,7 +216,7 @@ uvicorn app.main:app --reload
   `ALTER TABLE`, since `Base.metadata.create_all()` only creates missing tables, it
   doesn't alter existing ones.
 
-## Possible next steps
+## Ideal next steps
 
 - Batch multi-symbol requests where the provider supports it, and move polling from a
   single loop to a queue of per-ticker jobs pulled by multiple workers — the path to

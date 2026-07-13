@@ -1,3 +1,7 @@
+"""Background poll cycle: fetch each tracked ticker's latest price, run
+anomaly detection, cross-check reconciliation, and dispatch alerts.
+"""
+
 import json
 import logging
 
@@ -13,6 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 async def poll_cycle() -> None:
+    """Fetch and process one price tick for every currently tracked ticker.
+
+    Run on a schedule by APScheduler (see `app/main.py`). Each ticker's
+    failure is caught and logged individually so one provider hiccup
+    doesn't take down the whole cycle.
+    """
     # Read fresh each cycle (not cached) so adding/removing a ticker via the
     # dashboard takes effect on the next poll, not just after a restart —
     # same reasoning as RuntimeConfig being read fresh per operation.
@@ -37,7 +47,14 @@ async def check_reconciliation(ticker: str, primary_price: float) -> None:
     independently-fetched reading (see ingestion.fetch_reconciliation_price
     for the honest caveat on how independent that really is). Uses its own
     cooldown key so a reconciliation mismatch never competes with, or gets
-    suppressed by, a price/volume/spread/volatility alert's cooldown."""
+    suppressed by, a price/volume/spread/volatility alert's cooldown.
+
+    Parameters
+    ----------
+    ticker : str
+    primary_price : float
+        Price already fetched this cycle via the primary provider path.
+    """
     recon_price = await fetch_reconciliation_price(ticker)
     if recon_price is None:
         return
@@ -94,6 +111,19 @@ async def check_reconciliation(ticker: str, primary_price: float) -> None:
 
 
 def _describe_signal(name: str, z: float, price: float, volume: float, spread: float) -> str:
+    """Render one triggered signal as a human-readable phrase for the
+    alert message.
+
+    Parameters
+    ----------
+    name : {"price", "volume", "spread", "volatility"}
+    z : float
+    price, volume, spread : float
+
+    Returns
+    -------
+    str
+    """
     if name == "price":
         return f"price moved {z:.1f} std devs (price={price:.2f})"
     if name == "volume":
@@ -114,6 +144,22 @@ def _build_message(
     zscore_threshold: float,
     prefix: str = "",
 ) -> str:
+    """Build the human-readable alert message for a detection result.
+
+    Parameters
+    ----------
+    ticker : str
+    result : AnomalyResult
+    price, volume, spread : float
+    zscore_threshold : float
+        Used to decide which signals count as "triggered" for the message.
+    prefix : str, optional
+        Prepended to the message, e.g. `"[TEST] "` for synthetic alerts.
+
+    Returns
+    -------
+    str
+    """
     if result.stale:
         base = f"{ticker} looks halted/stale — no price movement and zero volume for {result.stale_count} consecutive polls"
         triggered_others = [name for name in result.signals if name in result.kind.split("+")]
@@ -134,6 +180,20 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
     Shared by the real poller and the manual test-trigger endpoint, so
     both go through the exact same detection/alert code path — the test
     endpoint exercises the real pipeline, not a separate mock of it.
+
+    Parameters
+    ----------
+    ticker : str
+    price_data : dict
+        `{"price", "volume", "bid", "ask", "timestamp", "source"}` as
+        returned by `ingestion.fetch_latest_price`.
+    persist_price_history : bool
+        Whether to write a `PriceHistory` row for this tick (the real
+        poller does; some callers may not want to grow that table).
+
+    Returns
+    -------
+    AnomalyResult
     """
     price = price_data["price"]
     volume = price_data["volume"]
@@ -218,6 +278,23 @@ async def trigger_test_alert(ticker: str, kind: str = "price") -> dict:
     manual trigger should always fire when called), but still calls
     record_alert() afterward so it participates in cooldown bookkeeping
     same as a real alert — calling this repeatedly won't spam duplicates.
+
+    Parameters
+    ----------
+    ticker : str
+    kind : {"price", "volume", "spread", "volatility"}, optional
+        Which signal to synthesize, by default "price".
+
+    Returns
+    -------
+    dict
+        `{"ticker", "kind", "synthetic_value", "z_score", "message"}`.
+
+    Raises
+    ------
+    ValueError
+        If there's no baseline yet, or too few samples to synthesize
+        against safely.
     """
     db = SessionLocal()
     try:

@@ -1,3 +1,9 @@
+"""Runtime-adjustable alert thresholds, backed by a singleton `RuntimeConfig`
+row rather than the static env-var `Settings`. Once seeded (in `main.py`'s
+lifespan), the DB row is the permanent source of truth — a later env var
+change has no further effect. See `app/config.py`'s module docstring.
+"""
+
 from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
@@ -14,7 +20,15 @@ class RuntimeConfigValues:
     """A detached snapshot, not the ORM row — SessionLocal sessions here are
     short-lived and closed in `finally` blocks, so returning the live ORM
     object would risk an expire_on_commit refresh against an already-closed
-    session wherever the value gets used after the fetching session ends."""
+    session wherever the value gets used after the fetching session ends.
+
+    Attributes
+    ----------
+    anomaly_zscore_threshold : float
+    stale_threshold : int
+    alert_cooldown_minutes : int
+    reconciliation_tolerance : float
+    """
 
     anomaly_zscore_threshold: float
     stale_threshold: int
@@ -23,6 +37,16 @@ class RuntimeConfigValues:
 
 
 def _to_values(row: RuntimeConfig) -> RuntimeConfigValues:
+    """Detach a `RuntimeConfig` ORM row into a plain dataclass.
+
+    Parameters
+    ----------
+    row : RuntimeConfig
+
+    Returns
+    -------
+    RuntimeConfigValues
+    """
     return RuntimeConfigValues(
         anomaly_zscore_threshold=row.anomaly_zscore_threshold,
         stale_threshold=row.stale_threshold,
@@ -32,6 +56,17 @@ def _to_values(row: RuntimeConfig) -> RuntimeConfigValues:
 
 
 def get_runtime_config(db: Session) -> RuntimeConfigValues:
+    """Read the singleton runtime config row, seeding it from `settings`
+    if it doesn't exist yet.
+
+    Parameters
+    ----------
+    db : sqlalchemy.orm.Session
+
+    Returns
+    -------
+    RuntimeConfigValues
+    """
     row = db.get(RuntimeConfig, SINGLETON_ID)
     if row is not None:
         return _to_values(row)
@@ -58,6 +93,26 @@ def get_runtime_config(db: Session) -> RuntimeConfigValues:
 
 
 def update_runtime_config(db: Session, **kwargs: float | int | None) -> RuntimeConfigValues:
+    """Validate and apply one or more threshold updates to the singleton
+    row. Keys not present in `kwargs`, or passed as `None`, are left
+    unchanged.
+
+    Parameters
+    ----------
+    db : sqlalchemy.orm.Session
+    **kwargs : float or int or None
+        Any of `anomaly_zscore_threshold`, `stale_threshold`,
+        `alert_cooldown_minutes`, `reconciliation_tolerance`.
+
+    Returns
+    -------
+    RuntimeConfigValues
+
+    Raises
+    ------
+    ValueError
+        If any provided value is out of its valid range.
+    """
     if kwargs.get("anomaly_zscore_threshold") is not None and kwargs["anomaly_zscore_threshold"] <= 0:
         raise ValueError("anomaly_zscore_threshold must be > 0")
     if kwargs.get("stale_threshold") is not None and kwargs["stale_threshold"] <= 0:
