@@ -329,7 +329,10 @@ async function loadAlerts() {
     ul.innerHTML = '<li class="empty">No alerts yet.</li>';
     return;
   }
-  for (const a of alerts) prependAlert(a);
+  // /alerts already comes back newest-first; prependAlert inserts at the top,
+  // so looping forward would reverse it. Loop in reverse instead, so the
+  // real newest alert is the last one prepended and ends up on top.
+  for (const a of [...alerts].reverse()) prependAlert(a);
 }
 
 function prependAlert(a) {
