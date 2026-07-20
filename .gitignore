@@ -5,3 +5,4 @@ __pycache__/
 .DS_Store
 AZURE_DEPLOY.md
 deploy.zip
+.worktrees/
