@@ -6,9 +6,9 @@ psycopg2-binary
 pydantic-settings
 apscheduler
 httpx
-websockets
-openbb-core
-openbb-equity
-openbb-yfinance
-yfinance
+websockets==16.1
+openbb-core==1.6.13
+openbb-equity==1.6.2
+openbb-yfinance==1.6.3
+yfinance==1.5.1
 python-dotenv

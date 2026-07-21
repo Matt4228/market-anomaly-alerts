@@ -163,12 +163,20 @@ def check_anomaly(
     signals: dict[str, float] = {}
     if baseline.sample_count >= 2:
         signals["price"] = abs(price - baseline.mean) / _effective_stddev(baseline.stddev, price)
-        signals["volume"] = abs(volume - baseline.volume_mean) / _effective_stddev(baseline.volume_stddev, max(volume, 1.0))
-        signals["spread"] = abs(spread - baseline.spread_mean) / _effective_stddev(baseline.spread_stddev, max(price, 1.0))
-        signals["volatility"] = abs(delta - baseline.delta_mean) / _effective_stddev(baseline.delta_stddev, max(price, 1.0))
+        signals["volume"] = abs(volume - baseline.volume_mean) / _effective_stddev(
+            baseline.volume_stddev, max(volume, 1.0)
+        )
+        signals["spread"] = abs(spread - baseline.spread_mean) / _effective_stddev(
+            baseline.spread_stddev, max(price, 1.0)
+        )
+        signals["volatility"] = abs(delta - baseline.delta_mean) / _effective_stddev(
+            baseline.delta_stddev, max(price, 1.0)
+        )
 
     baseline.sample_count += 1
-    baseline.mean, baseline.variance_sum = _welford_update(baseline.mean, baseline.variance_sum, baseline.sample_count, price)
+    baseline.mean, baseline.variance_sum = _welford_update(
+        baseline.mean, baseline.variance_sum, baseline.sample_count, price
+    )
     baseline.volume_mean, baseline.volume_variance_sum = _welford_update(
         baseline.volume_mean, baseline.volume_variance_sum, baseline.sample_count, volume
     )
