@@ -161,7 +161,10 @@ def _build_message(
     str
     """
     if result.stale:
-        base = f"{ticker} looks halted/stale - no price movement and zero volume for {result.stale_count} consecutive polls"
+        base = (
+            f"{ticker} looks halted/stale - no price movement and zero volume "
+            f"for {result.stale_count} consecutive polls"
+        )
         triggered_others = [name for name in result.signals if name in result.kind.split("+")]
         if triggered_others:
             extra = "; ".join(_describe_signal(n, result.signals[n], price, volume, spread) for n in triggered_others)
@@ -261,7 +264,14 @@ async def process_price(ticker: str, price_data: dict, *, persist_price_history:
 
     alert_manager.record_alert(ticker)
     await alert_manager.broadcast(
-        {"type": "alert", "id": alert_id, "ticker": ticker, "price": price, "z_score": result.z_score, "message": message}
+        {
+            "type": "alert",
+            "id": alert_id,
+            "ticker": ticker,
+            "price": price,
+            "z_score": result.z_score,
+            "message": message,
+        }
     )
     await alert_manager.notify_slack(message)
     return result
