@@ -4,6 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import models  # noqa: F401 - import registers ORM tables on Base.metadata before create_all below
 from app.db import Base, get_session
 
 
