@@ -22,6 +22,16 @@ def test_add_ticker_with_the_wrong_debug_token_is_forbidden(client, monkeypatch)
     assert response.status_code == 403
 
 
+def test_remove_ticker_without_a_debug_token_is_forbidden(client):
+    response = client.delete("/tickers/AAPL")
+    assert response.status_code == 403
+
+
+def test_post_config_without_a_debug_token_is_forbidden(client):
+    response = client.post("/config")
+    assert response.status_code == 403
+
+
 def test_add_ticker_with_a_valid_token_persists_the_new_ticker(client, monkeypatch):
     monkeypatch.setattr(settings, "debug_token", "correct-token")
     monkeypatch.setattr("app.main.fetch_latest_price", AsyncMock(return_value={"price": 100.0}))
