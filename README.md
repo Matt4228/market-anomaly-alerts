@@ -15,8 +15,9 @@ Built as a practice project standing in for Bloomberg-style market data API expe
 with a deliberate focus on the mechanics that come up around any rate-limited external
 API: throttling, backoff, caching, scalability, and cost tradeoffs.
 
-**Live**: https://market-anomaly-alerts-modonnell.azurewebsites.net (Azure App Service,
-Canada Central).
+**Live**: https://market-anomaly-alerts.onrender.com (free tier: polls only during NYSE
+hours, and the first visit after a quiet spell can take about a minute to wake up - see
+[Deployment](#deployment)).
 
 ## Architecture
 
@@ -173,6 +174,9 @@ free Supabase/Neon instance). Tables are created automatically on startup.
 uvicorn app.main:app --reload
 ```
 
+Polls are skipped outside NYSE regular hours. To see live ticks while developing in the
+evening or on a weekend, set `MARKET_HOURS_ONLY=false` in `.env`.
+
 - `GET /` - live dashboard (real-time prices, z-scores, alert feed, test-trigger buttons)
 - `GET /tickers` - tracked tickers and poll interval
 - `POST /tickers/{ticker}` - add a tracked ticker (max 5, auth required); validates by
@@ -215,6 +219,33 @@ uvicorn app.main:app --reload
 - No migration tool (Alembic, etc.) - schema changes to existing tables need a manual
   `ALTER TABLE`, since `Base.metadata.create_all()` only creates missing tables, it
   doesn't alter existing ones.
+
+## Deployment
+
+Runs entirely on free tiers: a [Render](https://render.com) web service (configured in
+`render.yaml`) and a [Neon](https://neon.com) Postgres database, both in AWS us-east-1.
+Free tiers come with two constraints that shaped the design:
+
+- **Neon's free plan allows 100 compute-hours a month, and its compute only sleeps after
+  5 idle minutes.** Polling every 5 minutes around the clock would keep it awake
+  permanently and use up the allowance in about two weeks. So `poll_cycle` returns
+  before touching the database whenever the market is closed (`app/market_hours.py`:
+  weekdays 9:30 AM - 4:00 PM New York time, NYSE holidays excluded). That brings usage
+  down to roughly 145 hours a month. It also stops false "stale" alerts on holidays,
+  when the price sits flat with zero volume.
+- **Render's free web services sleep after 15 minutes without traffic,** and a sleeping
+  process can't run its scheduler. A scheduled GitHub Actions workflow
+  (`.github/workflows/keep-alive.yml`) pings `GET /health` every 5 minutes through the
+  trading day. `/health` doesn't touch the database, so pings outside market hours keep
+  the app up without waking Postgres.
+
+The poll scheduler runs inside the web process, so the app runs as exactly one process
+(`startCommand` in `render.yaml`). Adding workers would mean adding schedulers, each
+polling every ticker.
+
+To deploy your own copy: create a Neon project, then in Render choose New > Blueprint,
+pick this repo, and paste the Neon connection string into `DATABASE_URL`. Finally set
+the keep-alive's target with `gh variable set APP_URL --body "https://<service>.onrender.com"`.
 
 ## Ideal next steps
 
