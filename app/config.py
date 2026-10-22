@@ -26,6 +26,9 @@ class Settings(BaseSettings):
         Provider name passed to OpenBB calls.
     poll_interval_minutes : int
         How often the background poll cycle runs.
+    market_hours_only : bool
+        Skip poll cycles outside NYSE regular hours. Turn off for local
+        development outside market hours.
     anomaly_zscore_threshold, stale_threshold, alert_cooldown_minutes,
     reconciliation_tolerance
         Seed defaults for the runtime-adjustable alert thresholds.
@@ -49,6 +52,7 @@ class Settings(BaseSettings):
     openbb_provider: str = "yfinance"
 
     poll_interval_minutes: int = 5
+    market_hours_only: bool = True
     alert_cooldown_minutes: int = 30
     anomaly_zscore_threshold: float = 3.0
     min_stddev_fraction: float = 0.0005

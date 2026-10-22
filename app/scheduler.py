@@ -6,9 +6,11 @@ import json
 import logging
 
 from app.alerts import alert_manager
+from app.config import settings
 from app.db import SessionLocal
 from app.detector import AnomalyResult, check_anomaly, synthetic_anomalous_sample
 from app.ingestion import fetch_latest_price, fetch_reconciliation_price
+from app.market_hours import is_market_open
 from app.models import Alert, PriceHistory
 from app.runtime_config import get_runtime_config
 from app.tracked_tickers import get_tracked_tickers
@@ -22,7 +24,14 @@ async def poll_cycle() -> None:
     Run on a schedule by APScheduler (see `app/main.py`). Each ticker's
     failure is caught and logged individually so one provider hiccup
     doesn't take down the whole cycle.
+
+    Returns immediately, before touching the database, while the market
+    is closed (see `app/market_hours.py`), unless `market_hours_only` is
+    turned off.
     """
+    if settings.market_hours_only and not is_market_open():
+        return
+
     # Read fresh each cycle (not cached) so adding/removing a ticker via the
     # dashboard takes effect on the next poll, not just after a restart -
     # same reasoning as RuntimeConfig being read fresh per operation.
