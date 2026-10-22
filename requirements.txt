@@ -12,3 +12,6 @@ openbb-equity==1.6.2
 openbb-yfinance==1.6.3
 yfinance==1.5.1
 python-dotenv
+holidays==0.107
+# zoneinfo needs this on Windows, which has no system timezone database
+tzdata==2026.5
