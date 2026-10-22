@@ -1,0 +1,25 @@
+# Render Blueprint: Render reads this file to create and configure the web
+# service, so the hosting setup is reviewed in PRs like any other code.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: market-anomaly-alerts
+    runtime: python
+    plan: free
+    # Same AWS region as the Neon database, so every query stays in-region.
+    region: virginia
+    branch: master
+    buildCommand: pip install -r requirements.txt
+    # Exactly one process: the poll scheduler runs inside the web process,
+    # so a second worker would poll every ticker twice.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # sync: false means Render asks for the value in its dashboard
+      # instead of reading it from this file, so secrets never hit git.
+      - key: DATABASE_URL
+        sync: false
+      - key: DEBUG_TOKEN
+        generateValue: true
+      - key: SLACK_WEBHOOK_URL
+        sync: false

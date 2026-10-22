@@ -1,0 +1,23 @@
+# Render's free tier puts the service to sleep after 15 minutes without
+# traffic, and a sleeping service can't run its poll scheduler. Pinging
+# /health keeps it awake through the trading day.
+#
+# The window is 13:00-20:59 UTC on weekdays, which covers the 9:30 AM -
+# 4:00 PM New York session under both EDT (13:30-20:00 UTC) and EST
+# (14:30-21:00 UTC). The app's own market-hours check decides whether a
+# poll actually runs, so the slightly-too-wide window here is harmless.
+name: Keep alive
+
+on:
+  schedule:
+    - cron: "*/5 13-20 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      # The first ping of the day wakes the service, which takes about a
+      # minute on the free tier - hence the long timeout and retries.
+      - name: Ping /health
+        run: curl --fail --silent --show-error --retry 3 --retry-delay 20 --max-time 120 "${{ vars.APP_URL }}/health"

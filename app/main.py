@@ -78,6 +78,21 @@ def dashboard():
     return HTMLResponse(html)
 
 
+@app.get("/health")
+def health():
+    """Liveness check for the host and the keep-alive ping.
+
+    Deliberately doesn't touch the database, so pinging it outside market
+    hours keeps the web service awake without waking Postgres.
+
+    Returns
+    -------
+    dict
+        `{"status": "ok"}`.
+    """
+    return {"status": "ok"}
+
+
 @app.get("/tickers")
 def list_tickers(db: Session = Depends(get_session)):
     """Return the current tracked-ticker list and poll interval.

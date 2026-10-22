@@ -3,6 +3,18 @@ from unittest.mock import AsyncMock
 from app.config import settings
 
 
+def test_health_is_ok_without_touching_the_database(client, monkeypatch):
+    from app import main
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("/health touched the database")
+
+    monkeypatch.setattr(main, "SessionLocal", fail_if_called)
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_list_tickers_seeds_and_returns_the_default_tracked_set(client):
     response = client.get("/tickers")
     assert response.status_code == 200
