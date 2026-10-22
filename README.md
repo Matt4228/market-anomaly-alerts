@@ -207,15 +207,16 @@ evening or on a weekend, set `MARKET_HOURS_ONLY=false` in `.env`.
   handler, which Linux only allows from the main thread (Windows is lenient about this,
   so it can look fine locally and fail silently, every single poll, once deployed).
 - Slack alerts are optional - leave `SLACK_WEBHOOK_URL` blank to skip them.
-- `/debug/test-alert` requires `X-Debug-Token` to match `DEBUG_TOKEN` (fails closed -
-  unset means every request is refused). The dashboard's `GET /` is rendered, not served
-  as a static file, specifically so the token gets substituted from the environment at
-  request time and the real secret never lands in the committed HTML/git repo. Worth
-  being honest about the actual security this buys: the token is still visible via
-  view-source on the rendered page (the dashboard's own buttons need it to work), so
-  this stops casual/automated hits on the endpoint, not someone deliberately reading the
-  page's JS. Good enough for a demo project's debug surface, not a substitute for real
-  auth on anything that matters more.
+- **Viewing is public; changing things takes the admin token.** Every endpoint that
+  changes alerting behavior or sends a Slack message (adding or removing tickers,
+  `POST /config`, `/debug/test-alert`) requires `X-Debug-Token` to match `DEBUG_TOKEN`,
+  checked in one dependency (`require_admin_token` in `app/main.py`) with a
+  constant-time comparison. It fails closed: unset means every admin request is
+  refused. The token is never sent to the browser. The dashboard's "Unlock admin" link
+  asks for it, checks it against `GET /admin/check`, and keeps it in the visitor's
+  localStorage. A test enumerates every mutating route, so a new one can't ship without
+  the check. It's one shared secret, not user accounts, which fits a single-operator
+  demo.
 - No migration tool (Alembic, etc.) - schema changes to existing tables need a manual
   `ALTER TABLE`, since `Base.metadata.create_all()` only creates missing tables, it
   doesn't alter existing ones.
