@@ -4,13 +4,14 @@ starts the APScheduler poll job.
 """
 
 import json
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import asc, desc
 from sqlalchemy.orm import Session
@@ -56,26 +57,57 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Market Anomaly Alerts", lifespan=lifespan)
 
 STATIC_DIR = Path(__file__).parent / "static"
-# Only needed for standalone assets like the favicon - index.html itself is
-# still served through the dashboard() route below (not this mount), since
-# that's where the debug-token placeholder gets substituted at request time.
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+def require_admin_token(x_debug_token: str | None = Header(default=None)) -> None:
+    """Reject the request unless `X-Debug-Token` matches `DEBUG_TOKEN`.
+
+    Attached to every endpoint that changes alerting behavior or sends a
+    Slack message. Fails closed: if `DEBUG_TOKEN` isn't configured, every
+    request is refused.
+
+    Raises
+    ------
+    fastapi.HTTPException
+        403 if the token is missing, wrong, or not configured.
+    """
+    expected = settings.debug_token
+    supplied = x_debug_token or ""
+    # compare_digest takes the same time wherever the first wrong character
+    # is, so response timing can't leak the token one character at a time.
+    # Compared as bytes because it raises TypeError on non-ASCII str input.
+    if not expected or not secrets.compare_digest(supplied.encode(), expected.encode()):
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+admin_only = [Depends(require_admin_token)]
 
 
 @app.get("/")
 def dashboard():
-    """Serve the dashboard HTML with the debug token substituted in.
+    """Serve the dashboard HTML.
+
+    The page holds no secrets: anyone can view it, and the admin actions
+    ask the visitor for the token (see `require_admin_token`).
 
     Returns
     -------
-    fastapi.responses.HTMLResponse
+    fastapi.responses.FileResponse
     """
-    # Rendered, not served as a static file: the debug token placeholder is
-    # substituted from settings at request time, so the real secret only
-    # ever lives in the environment, never in the committed HTML/git repo.
-    html = (STATIC_DIR / "index.html").read_text()
-    html = html.replace("__DEBUG_TOKEN__", settings.debug_token or "")
-    return HTMLResponse(html)
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/admin/check", dependencies=admin_only)
+def admin_check():
+    """Let the dashboard verify an admin token before saving it.
+
+    Returns
+    -------
+    dict
+        `{"ok": True}`.
+    """
+    return {"ok": True}
 
 
 @app.get("/health")
@@ -105,15 +137,13 @@ def list_tickers(db: Session = Depends(get_session)):
     return {"tickers": get_tracked_tickers(db), "poll_interval_minutes": settings.poll_interval_minutes}
 
 
-@app.post("/tickers/{ticker}")
-async def add_ticker(ticker: str, x_debug_token: str | None = Header(default=None), db: Session = Depends(get_session)):
+@app.post("/tickers/{ticker}", dependencies=admin_only)
+async def add_ticker(ticker: str, db: Session = Depends(get_session)):
     """Adds a ticker to the tracked set (max 5). Validates that we can
     actually fetch live data for it BEFORE persisting - the same
     fetch_latest_price() call the real poller uses, so "valid" means
     "our actual ingestion pipeline works for this symbol", not just
     "looks like a ticker format"."""
-    if not settings.debug_token or x_debug_token != settings.debug_token:
-        raise HTTPException(status_code=403, detail="forbidden")
     ticker = ticker.upper()
     try:
         await fetch_latest_price(ticker)
@@ -126,11 +156,9 @@ async def add_ticker(ticker: str, x_debug_token: str | None = Header(default=Non
     return {"tickers": tickers}
 
 
-@app.delete("/tickers/{ticker}")
-def remove_ticker(ticker: str, x_debug_token: str | None = Header(default=None), db: Session = Depends(get_session)):
+@app.delete("/tickers/{ticker}", dependencies=admin_only)
+def remove_ticker(ticker: str, db: Session = Depends(get_session)):
     """Remove a ticker from the tracked set (min 1 remaining)."""
-    if not settings.debug_token or x_debug_token != settings.debug_token:
-        raise HTTPException(status_code=403, detail="forbidden")
     try:
         tickers = remove_tracked_ticker(db, ticker.upper())
     except ValueError as e:
@@ -249,22 +277,19 @@ def get_config(db: Session = Depends(get_session)):
     }
 
 
-@app.post("/config")
+@app.post("/config", dependencies=admin_only)
 def post_config(
     anomaly_zscore_threshold: float | None = None,
     stale_threshold: int | None = None,
     alert_cooldown_minutes: int | None = None,
     reconciliation_tolerance: float | None = None,
-    x_debug_token: str | None = Header(default=None),
     db: Session = Depends(get_session),
 ):
     """Runtime-adjustable alert thresholds - the only mutating endpoint
     besides /debug/test-alert that changes production alerting behavior,
-    so it gets the same auth. Once written, these values are the permanent
+    so it gets the same admin token. Once written, these values are the permanent
     source of truth; a later env var change has no effect (see
     app/runtime_config.py)."""
-    if not settings.debug_token or x_debug_token != settings.debug_token:
-        raise HTTPException(status_code=403, detail="forbidden")
     try:
         config = update_runtime_config(
             db,
@@ -314,8 +339,8 @@ async def ticker_fundamentals(ticker: str):
 TEST_ALERT_KINDS = ("price", "volume", "spread", "volatility")
 
 
-@app.post("/debug/test-alert/{ticker}")
-async def test_alert(ticker: str, kind: str = "price", x_debug_token: str | None = Header(default=None)):
+@app.post("/debug/test-alert/{ticker}", dependencies=admin_only)
+async def test_alert(ticker: str, kind: str = "price"):
     """Demo/testing only - fires a real alert through the same storage,
     broadcast, and Slack code path as a genuine detection, using a
     synthetic value instead of waiting on real market volatility.
@@ -323,11 +348,7 @@ async def test_alert(ticker: str, kind: str = "price", x_debug_token: str | None
     ("stale" isn't synthesizable as a single value - it's a multi-poll
     state, exercised only by the real poll cycle.)
 
-    Requires X-Debug-Token to match DEBUG_TOKEN. Fails closed: if
-    DEBUG_TOKEN isn't configured, this endpoint refuses every request
-    rather than being silently open."""
-    if not settings.debug_token or x_debug_token != settings.debug_token:
-        raise HTTPException(status_code=403, detail="forbidden")
+    Requires the admin token (see `require_admin_token`)."""
     if kind not in TEST_ALERT_KINDS:
         raise HTTPException(status_code=400, detail=f"kind must be one of {TEST_ALERT_KINDS}")
     try:

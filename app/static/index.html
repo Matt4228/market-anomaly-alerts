@@ -197,6 +197,7 @@
     <span class="sub-full-text">Live prices update every poll cycle |</span>
     <span id="conn" class="status disconnected">connecting…</span>
     | <span class="ticker-link" onclick="openEditTickersModal()">Edit Tickers</span>
+    | <span class="ticker-link" id="admin-link" onclick="toggleAdmin()">Unlock admin</span>
     | <span class="ticker-link" onclick="openSettingsModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:2px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> Settings</span>
   </div>
 
@@ -216,10 +217,93 @@
 
 <script>
 const rows = {};
-// Baked in at deploy time for the dashboard's own test buttons to work.
-// This means it's visible via view-source - good enough to stop casual/
-// automated hits on the endpoint, not a substitute for real auth.
-const DEBUG_TOKEN = "__DEBUG_TOKEN__";
+
+// Viewing is open to everyone. Changing tickers or thresholds and firing
+// test alerts need the admin token, which the visitor types in once. It's
+// kept in localStorage (or in memory when storage is blocked), never in the
+// page itself, so view-source shows nothing secret.
+const ADMIN_KEY = "maa:admin-token";
+let adminTokenFallback = null;
+
+function getAdminToken() {
+  try {
+    return localStorage.getItem(ADMIN_KEY) ?? adminTokenFallback;
+  } catch {
+    return adminTokenFallback;
+  }
+}
+
+function setAdminToken(token) {
+  adminTokenFallback = token;
+  try {
+    if (token === null) localStorage.removeItem(ADMIN_KEY);
+    else localStorage.setItem(ADMIN_KEY, token);
+  } catch {
+    // Not persisted; the visitor will be asked again next visit.
+  }
+  updateAdminLink();
+}
+
+function updateAdminLink() {
+  document.getElementById("admin-link").textContent = getAdminToken() ? "Lock admin" : "Unlock admin";
+}
+
+function toggleAdmin() {
+  if (getAdminToken()) setAdminToken(null);
+  else openUnlockModal();
+}
+
+function openUnlockModal(message = "Viewing is open to everyone. Editing tickers and settings, and firing test alerts, need the admin token.") {
+  openModal(`
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <h3>Admin token</h3>
+    <p style="color:var(--text-dim);font-size:0.85rem;">${message}</p>
+    <form id="unlock-form" style="display:flex;gap:0.5rem;">
+      <input id="unlock-input" type="password" autocomplete="current-password" aria-label="Admin token" style="flex:1;font-family:inherit;background:var(--bg);border:1px solid var(--border-amber);color:var(--text);border-radius:2px;padding:4px 8px;">
+      <button class="test-btn" type="submit">Unlock</button>
+    </form>
+    <div id="unlock-status" role="alert" style="margin-top:0.5rem;font-size:0.85rem;color:var(--red);"></div>
+  `);
+  const input = document.getElementById("unlock-input");
+  input.focus();
+  document.getElementById("unlock-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.getElementById("unlock-status");
+    const token = input.value.trim();
+    if (!token) return;
+    let res;
+    try {
+      res = await fetch("/admin/check", { headers: { "X-Debug-Token": token } });
+    } catch {
+      status.textContent = "Couldn't reach the server. Try again in a moment.";
+      return;
+    }
+    if (res.ok) {
+      setAdminToken(token);
+      closeModal();
+    } else {
+      status.textContent = res.status === 403 ? "Incorrect token." : "Couldn't check the token. Try again in a moment.";
+    }
+  });
+}
+
+// fetch() with the admin token attached. Returns null, after asking for the
+// token, when there isn't one or the saved one stopped working (403), so
+// callers only have to handle real responses.
+async function adminFetch(url, init = {}) {
+  const token = getAdminToken();
+  if (!token) {
+    openUnlockModal();
+    return null;
+  }
+  const res = await fetch(url, { ...init, headers: { ...init.headers, "X-Debug-Token": token } });
+  if (res.status === 403) {
+    setAdminToken(null);
+    openUnlockModal("That admin token isn't accepted anymore. Enter the current one.");
+    return null;
+  }
+  return res;
+}
 
 // Draws a dashed vertical guide at the hovered x-position, top to bottom of
 // the chart area - paired with interaction:{mode:"index",intersect:false}
@@ -559,7 +643,8 @@ async function addTicker() {
   if (!ticker) return;
   status.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Validating - checking we can fetch data for this symbol…';
   status.style.color = "var(--text-dim)";
-  const res = await fetch(`/tickers/${ticker}`, { method: "POST", headers: { "X-Debug-Token": DEBUG_TOKEN } });
+  const res = await adminFetch(`/tickers/${ticker}`, { method: "POST" });
+  if (!res) return;
   const result = await res.json();
   if (!res.ok) {
     status.textContent = result.detail || "Failed to add ticker.";
@@ -573,7 +658,8 @@ async function addTicker() {
 }
 
 async function removeTicker(ticker) {
-  const res = await fetch(`/tickers/${ticker}`, { method: "DELETE", headers: { "X-Debug-Token": DEBUG_TOKEN } });
+  const res = await adminFetch(`/tickers/${ticker}`, { method: "DELETE" });
+  if (!res) return;
   const result = await res.json();
   if (!res.ok) {
     await renderEditTickersBody();
@@ -632,7 +718,8 @@ async function openSettingsModal() {
       alert_cooldown_minutes: document.getElementById("cfg-cooldown").value,
       reconciliation_tolerance: document.getElementById("cfg-recon").value,
     });
-    const res = await fetch(`/config?${params}`, { method: "POST", headers: { "X-Debug-Token": DEBUG_TOKEN } });
+    const res = await adminFetch(`/config?${params}`, { method: "POST" });
+    if (!res) return;
     const result = await res.json();
     status.textContent = res.ok ? "Saved." : result.detail || "Failed to save.";
     status.style.color = res.ok ? "var(--green)" : "var(--red)";
@@ -653,11 +740,8 @@ document.getElementById("ticker-rows").addEventListener("click", async (event) =
   const originalText = btn.textContent;
   btn.textContent = "Triggering…";
   try {
-    const res = await fetch(`/debug/test-alert/${ticker}?kind=${kind}`, {
-      method: "POST",
-      headers: { "X-Debug-Token": DEBUG_TOKEN },
-    });
-    if (!res.ok) {
+    const res = await adminFetch(`/debug/test-alert/${ticker}?kind=${kind}`, { method: "POST" });
+    if (res && !res.ok) {
       const body = await res.json().catch(() => ({}));
       alert(body.detail || "Test alert failed - check server logs.");
     }
@@ -667,6 +751,7 @@ document.getElementById("ticker-rows").addEventListener("click", async (event) =
   }
 });
 
+updateAdminLink();
 initTable();
 loadAlerts();
 connect();

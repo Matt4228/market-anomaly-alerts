@@ -1,5 +1,7 @@
 from unittest.mock import AsyncMock
 
+import pytest
+
 from app.config import settings
 
 
@@ -83,4 +85,69 @@ def test_get_alert_404s_for_an_unknown_id(client):
 def test_debug_test_alert_fails_closed_when_no_token_is_configured(client, monkeypatch):
     monkeypatch.setattr(settings, "debug_token", None)
     response = client.post("/debug/test-alert/AAPL")
+    assert response.status_code == 403
+
+
+TOKEN = "correct-token"
+
+
+def mutating_routes():
+    """Every (method, path) the app serves that changes state.
+
+    Read from the app's own route table so a route added later is covered
+    by the test below without anyone remembering to list it.
+    """
+    from app.main import app
+
+    for route in app.routes:
+        for method in sorted(getattr(route, "methods", None) or ()):
+            if method in {"POST", "PUT", "PATCH", "DELETE"}:
+                yield method, route.path.replace("{ticker}", "AAPL")
+
+
+def test_mutating_routes_were_found():
+    # Guards the test below: if discovery ever matched nothing, the
+    # parametrized test would run zero cases and still pass.
+    assert len(list(mutating_routes())) >= 4
+
+
+@pytest.mark.parametrize("method, path", list(mutating_routes()))
+def test_every_mutating_route_requires_the_admin_token(client, monkeypatch, method, path):
+    monkeypatch.setattr(settings, "debug_token", TOKEN)
+    assert client.request(method, path).status_code == 403
+    assert client.request(method, path, headers={"X-Debug-Token": "wrong"}).status_code == 403
+
+
+def test_dashboard_never_contains_the_admin_token(client, monkeypatch):
+    monkeypatch.setattr(settings, "debug_token", "s3cret-admin-value")
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "Market Anomaly Alerts" in response.text
+    assert "s3cret-admin-value" not in response.text
+
+
+def test_admin_check_accepts_the_right_token(client, monkeypatch):
+    monkeypatch.setattr(settings, "debug_token", TOKEN)
+    response = client.get("/admin/check", headers={"X-Debug-Token": TOKEN})
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
+def test_admin_check_rejects_a_wrong_or_missing_token(client, monkeypatch):
+    monkeypatch.setattr(settings, "debug_token", TOKEN)
+    assert client.get("/admin/check").status_code == 403
+    assert client.get("/admin/check", headers={"X-Debug-Token": "wrong"}).status_code == 403
+
+
+def test_admin_check_fails_closed_when_no_token_is_configured(client, monkeypatch):
+    monkeypatch.setattr(settings, "debug_token", None)
+    assert client.get("/admin/check", headers={"X-Debug-Token": ""}).status_code == 403
+
+
+def test_non_ascii_token_is_403_not_a_crash(client, monkeypatch):
+    # secrets.compare_digest raises TypeError on non-ASCII str, which would
+    # surface as a 500 if the comparison weren't done on encoded bytes.
+    # Sent as raw UTF-8 bytes: HTTP clients only accept ASCII header strings.
+    monkeypatch.setattr(settings, "debug_token", TOKEN)
+    response = client.get("/admin/check", headers={"X-Debug-Token": "pässwörd".encode()})
     assert response.status_code == 403
