@@ -198,6 +198,12 @@ evening or on a weekend, set `MARKET_HOURS_ONLY=false` in `.env`.
 ## Notes
 
 - Default tracked tickers and thresholds live in `.env` - see `.env.example`.
+- **Cloud hosts can't always reach Yahoo's quote endpoint.** On Render it returns "Results
+  not found" for every symbol, while the chart endpoint still works. When the quote fails,
+  `_fetch_price_blocking` falls back to yfinance's `fast_info`, which is built from chart
+  data (source `yfinance-chart`). Chart bars have no bid/ask, so the spread reads 0 and the spread signal
+  stays quiet while the fallback is in use; price, volume, volatility and stale detection
+  all still work.
 - Ingestion uses `obb.equity.price.quote`, not `historical()` - historical() defaults to
   daily bars, which silently never shows price movement when polled every few minutes.
   OpenBB's Python interface has shifted across versions; verify against `obb.coverage` /

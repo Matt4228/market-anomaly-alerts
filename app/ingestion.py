@@ -1,5 +1,6 @@
 """Fetches live price/quote data for the poll cycle: a primary OpenBB
-quote (cached + rate-limited) and a secondary yfinance reading used only
+quote (cached + rate-limited), falling back to Yahoo's chart data when the
+quote endpoint returns nothing, and a secondary yfinance reading used only
 for reconciliation cross-checks.
 """
 
@@ -32,6 +33,72 @@ logger = logging.getLogger(__name__)
 
 
 def _fetch_price_blocking(ticker: str) -> dict:
+    """Current price for `ticker`: the live quote, or chart data if the
+    quote endpoint fails.
+
+    Yahoo's quote endpoint returns no results to many cloud hosts (it
+    failed on every poll from Render while working from a home
+    connection), but its chart endpoint still answers there. Falling
+    back keeps polling alive instead of every poll failing silently.
+
+    Parameters
+    ----------
+    ticker : str
+
+    Returns
+    -------
+    dict
+        Same shape as `_fetch_quote_blocking`.
+    """
+    try:
+        return _fetch_quote_blocking(ticker)
+    except Exception as exc:  # noqa: BLE001 - any quote failure falls back
+        logger.warning("quote failed for %s (%s), using chart data instead", ticker, exc)
+        return _fetch_chart_price_blocking(ticker)
+
+
+def _fetch_chart_price_blocking(ticker: str) -> dict:
+    """Last traded price and today's volume from yfinance's fast_info,
+    which is built from Yahoo's chart endpoint rather than the quote one.
+
+    Chart data has no bid/ask, so both are set to the price, which makes
+    the spread 0. The spread signal therefore stays quiet while this
+    fallback is in use; price, volume, volatility and stale detection are
+    unaffected. `last_volume` is shares traded so far today, the same
+    number the quote reports (summing 1-minute bars instead overcounts it
+    about 2.5x).
+
+    Parameters
+    ----------
+    ticker : str
+
+    Returns
+    -------
+    dict
+        Same shape as `_fetch_quote_blocking`, with `source` marking the
+        fallback.
+
+    Raises
+    ------
+    ValueError
+        If Yahoo returns no price for `ticker`.
+    """
+    info = yf.Ticker(ticker).fast_info
+    if not info.last_price:
+        raise ValueError(f"no chart data returned for {ticker}")
+    price = float(info.last_price)
+    return {
+        "ticker": ticker,
+        "price": price,
+        "bid": price,
+        "ask": price,
+        "volume": float(info.last_volume or 0),
+        "timestamp": datetime.now(timezone.utc),
+        "source": f"{settings.openbb_provider}-chart",
+    }
+
+
+def _fetch_quote_blocking(ticker: str) -> dict:
     """Blocking OpenBB call - dispatched via asyncio.to_thread so it
     doesn't block the FastAPI event loop that the scheduler and
     websocket broadcasts also run on.
@@ -102,7 +169,7 @@ async def fetch_latest_price(ticker: str) -> dict:
     Returns
     -------
     dict
-        Same shape as `_fetch_price_blocking`.
+        Same shape as `_fetch_quote_blocking`.
     """
     cached = price_cache.get(ticker)
     if cached is not None:
