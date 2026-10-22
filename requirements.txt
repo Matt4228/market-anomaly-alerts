@@ -1,17 +1,16 @@
-fastapi
-uvicorn[standard]
-gunicorn
+fastapi==0.136.3
+uvicorn[standard]==0.40.0
 sqlalchemy==2.0.55
-psycopg2-binary
-pydantic-settings
-apscheduler
-httpx
+psycopg2-binary==2.9.13
+pydantic-settings==2.16.1
+apscheduler==3.11.3
+httpx==0.28.1
 websockets==16.1
 openbb-core==1.6.13
 openbb-equity==1.6.2
 openbb-yfinance==1.6.3
 yfinance==1.5.1
-python-dotenv
+python-dotenv==1.2.4
 holidays==0.107
 # zoneinfo needs this on Windows, which has no system timezone database
 tzdata==2026.5
