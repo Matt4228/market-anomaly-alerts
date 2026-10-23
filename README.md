@@ -241,18 +241,36 @@ Free tiers come with two constraints that shaped the design:
   down to roughly 145 hours a month. It also stops false "stale" alerts on holidays,
   when the price sits flat with zero volume.
 - **Render's free web services sleep after 15 minutes without traffic,** and a sleeping
-  process can't run its scheduler. A scheduled GitHub Actions workflow
-  (`.github/workflows/keep-alive.yml`) pings `GET /health` every 5 minutes through the
-  trading day. `/health` doesn't touch the database, so pings outside market hours keep
-  the app up without waking Postgres.
+  process can't run its scheduler. [Pulse](https://github.com/Matt4228/pulse), the
+  monitoring service for these projects, checks `GET /health` every 5 minutes during NYSE
+  hours only, which keeps the app awake for exactly the trading day. `/health` doesn't
+  touch the database, so the checks don't wake Postgres. (This replaced a GitHub Actions
+  cron, which GitHub ran far less often than scheduled: about 1 run in 60.)
+
+## Monitoring
+
+After each poll cycle, the app reports to Pulse (`app/pulse.py`):
+
+- **A heartbeat** for the `maa-poll` job, with `{tickers, ok, failed}`. It's `fail` when
+  tickers are tracked but none could be fetched, so a cycle that runs but produces
+  nothing (how Yahoo's quote block went unnoticed) raises an alert instead of looking
+  healthy. Pulse also alerts if no `ok` heartbeat arrives for 15 minutes while the
+  market is open.
+- **Data-source counts** since the last report: `quote`, `chart_fallback`,
+  `reconciliation`, `history`, `fundamentals`. The Pulse dashboard shows the fallback
+  share over 24 hours and 7 days.
+
+Reporting can't hurt polling: each request has a 3 second timeout, errors are swallowed
+(a rejected key is logged as a warning), and nothing is sent unless `PULSE_URL` and
+`PULSE_KEY` are both set.
 
 The poll scheduler runs inside the web process, so the app runs as exactly one process
 (`startCommand` in `render.yaml`). Adding workers would mean adding schedulers, each
 polling every ticker.
 
 To deploy your own copy: create a Neon project, then in Render choose New > Blueprint,
-pick this repo, and paste the Neon connection string into `DATABASE_URL`. Finally set
-the keep-alive's target with `gh variable set APP_URL --body "https://<service>.onrender.com"`.
+pick this repo, and paste the Neon connection string into `DATABASE_URL`. To keep it
+awake and monitored, add it as a Pulse target and set `PULSE_URL` and `PULSE_KEY`.
 
 ## Ideal next steps
 

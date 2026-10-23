@@ -13,6 +13,7 @@ from openbb import obb  # see app/ingestion.py for why this must be a module-lev
 
 from app.config import settings
 from app.ingestion import limiter  # shared token bucket - one budget across all OpenBB/yfinance calls
+from app.pulse import record_source
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,9 @@ async def fetch_history(ticker: str, range_key: str) -> list[dict]:
         Same shape as `_fetch_history_blocking`.
     """
     await limiter.acquire()
-    return await asyncio.to_thread(_fetch_history_blocking, ticker, range_key)
+    history = await asyncio.to_thread(_fetch_history_blocking, ticker, range_key)
+    record_source("history")
+    return history
 
 
 def _fetch_fundamentals_blocking(ticker: str) -> dict:
@@ -119,4 +122,6 @@ async def fetch_fundamentals(ticker: str) -> dict:
         Same shape as `_fetch_fundamentals_blocking`.
     """
     await limiter.acquire()
-    return await asyncio.to_thread(_fetch_fundamentals_blocking, ticker)
+    fundamentals = await asyncio.to_thread(_fetch_fundamentals_blocking, ticker)
+    record_source("fundamentals")
+    return fundamentals
