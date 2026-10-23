@@ -12,6 +12,7 @@ from app.detector import AnomalyResult, check_anomaly, synthetic_anomalous_sampl
 from app.ingestion import fetch_latest_price, fetch_reconciliation_price
 from app.market_hours import is_market_open
 from app.models import Alert, PriceHistory
+from app.pulse import flush_metrics, send_heartbeat
 from app.runtime_config import get_runtime_config
 from app.tracked_tickers import get_tracked_tickers
 
@@ -28,6 +29,10 @@ async def poll_cycle() -> None:
     Returns immediately, before touching the database, while the market
     is closed (see `app/market_hours.py`), unless `market_hours_only` is
     turned off.
+
+    After a cycle that ran, reports to Pulse (`app/pulse.py`): a heartbeat
+    that is `fail` when tickers are tracked but none could be fetched, plus
+    the data-source counts. Reporting never raises.
     """
     if settings.market_hours_only and not is_market_open():
         return
@@ -41,14 +46,22 @@ async def poll_cycle() -> None:
     finally:
         db.close()
 
+    ok = 0
     for ticker in tickers:
         try:
             price_data = await fetch_latest_price(ticker)
             await process_price(ticker, price_data, persist_price_history=True)
             await check_reconciliation(ticker, price_data["price"])
+            ok += 1
         except Exception:
             # One ticker's provider hiccup shouldn't take down the whole cycle.
             logger.exception("poll failed for %s", ticker)
+
+    # "fail" means the cycle ran but produced nothing: the failure mode that
+    # went unnoticed for days when Yahoo blocked the quote endpoint.
+    status = "fail" if tickers and ok == 0 else "ok"
+    await send_heartbeat(status, {"tickers": len(tickers), "ok": ok, "failed": len(tickers) - ok})
+    await flush_metrics()
 
 
 async def check_reconciliation(ticker: str, primary_price: float) -> None:

@@ -112,7 +112,7 @@ def admin_check():
 
 @app.get("/health")
 def health():
-    """Liveness check for the host and the keep-alive ping.
+    """Liveness check for the host and for Pulse's market-hours uptime checks.
 
     Deliberately doesn't touch the database, so pinging it outside market
     hours keeps the web service awake without waking Postgres.

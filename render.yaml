@@ -23,3 +23,9 @@ services:
         generateValue: true
       - key: SLACK_WEBHOOK_URL
         sync: false
+      # Monitoring: heartbeats and data-source counts go to Pulse
+      # (https://github.com/Matt4228/pulse). Unset means nothing is sent.
+      - key: PULSE_URL
+        sync: false
+      - key: PULSE_KEY
+        sync: false

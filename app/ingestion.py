@@ -22,6 +22,7 @@ from openbb import obb
 
 from app.cache import TTLCache
 from app.config import settings
+from app.pulse import record_source
 from app.rate_limiter import TokenBucketLimiter, with_backoff
 
 limiter = TokenBucketLimiter(
@@ -51,10 +52,14 @@ def _fetch_price_blocking(ticker: str) -> dict:
         Same shape as `_fetch_quote_blocking`.
     """
     try:
-        return _fetch_quote_blocking(ticker)
+        price = _fetch_quote_blocking(ticker)
+        source = "quote"
     except Exception as exc:  # noqa: BLE001 - any quote failure falls back
         logger.warning("quote failed for %s (%s), using chart data instead", ticker, exc)
-        return _fetch_chart_price_blocking(ticker)
+        price = _fetch_chart_price_blocking(ticker)
+        source = "chart_fallback"
+    record_source(source)
+    return price
 
 
 def _fetch_chart_price_blocking(ticker: str) -> dict:
@@ -226,7 +231,9 @@ async def fetch_reconciliation_price(ticker: str) -> float | None:
     """
     try:
         await limiter.acquire()
-        return await asyncio.to_thread(_fetch_reconciliation_price_blocking, ticker)
+        price = await asyncio.to_thread(_fetch_reconciliation_price_blocking, ticker)
+        record_source("reconciliation")
+        return price
     except Exception:
         logger.exception("reconciliation fetch failed for %s", ticker)
         return None

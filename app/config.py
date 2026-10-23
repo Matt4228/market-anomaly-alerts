@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     debug_token : str or None
         Shared secret required by mutating debug/admin endpoints. Fails
         closed if unset (see README).
+    pulse_url, pulse_key : str or None
+        Where to report poll heartbeats and data-source counts (see
+        `app/pulse.py`). Reporting is off unless both are set.
     """
 
     database_url: str = "postgresql://postgres:postgres@localhost:5432/market_alerts"
@@ -72,6 +75,10 @@ class Settings(BaseSettings):
     # admin endpoint is refused, not silently open. Never sent to the
     # browser; the dashboard asks the visitor for it.
     debug_token: str | None = None
+
+    # Monitoring (Pulse). Both unset means nothing is reported.
+    pulse_url: str | None = None
+    pulse_key: str | None = None
 
     class Config:
         env_file = ".env"
