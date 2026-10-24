@@ -128,7 +128,7 @@ reads/writes that let thresholds and the tracked-ticker set change without a red
 - **Price reconciliation as a separate check, not another baseline signal.** Cross-checks
   the primary OpenBB quote against a second reading fetched directly via `yfinance`
   (bypassing OpenBB's wrapper). Worth being honest about what this proves: both
-  ultimately trace back to Yahoo Finance, so it's nreot two unrelated vendors - but it's a
+  ultimately trace back to Yahoo Finance, so it's not two unrelated vendors - but it's a
   genuinely different code path/endpoint, and a large discrepancy is still a legitimate
   signal (stale cache, a bad read, a provider-side data issue). Uses its own cooldown key
   (`{ticker}:reconciliation`) so it never competes with or gets suppressed by a
