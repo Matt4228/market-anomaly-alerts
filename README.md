@@ -18,6 +18,7 @@ API: throttling, backoff, caching, scalability, and cost tradeoffs.
 **Live**: https://market-anomaly-alerts.onrender.com (free tier: polls only during NYSE
 hours, and the first visit after a quiet spell can take about a minute to wake up - see
 [Deployment](#deployment)).
+![Live dashboard: tracked tickers against their baselines, and alerts for price, volume and volatility moves](docs/dashboard.png)
 
 ## Architecture
 
